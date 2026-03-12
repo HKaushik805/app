@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "912903397115",
+    "project_id": "grindchat-c8a56",
+    "storage_bucket": "grindchat-c8a56.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:912903397115:android:075e56a39fde9a766f1a5e",
+        "android_client_info": {
+          "package_name": "com.example.code"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBV4JF9u5NJGHaSJayWZViicsXawXpv238"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
