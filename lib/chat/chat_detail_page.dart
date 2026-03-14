@@ -7,6 +7,9 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
+// Ensure this import matches your folder path
+import '../contacts/contact_profile_page.dart';
+
 class ChatDetailPage extends StatefulWidget {
   final String receiverName;
   final String receiverId;
@@ -26,6 +29,7 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
   final ScrollController _scrollController = ScrollController();
   final String currentUserId = FirebaseAuth.instance.currentUser!.uid;
 
+  // --- LOGIC: UNIQUE CHAT ID ---
   String getChatId() {
     List<String> ids = [currentUserId, widget.receiverId];
     ids.sort();
@@ -66,6 +70,7 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
     _saveMessageToFirestore(msg: base64File, type: isVideo ? 'video' : 'image');
   }
 
+  // --- LOGIC: SAVE MESSAGE & UPDATE RECENT CHATS ---
   void _saveMessageToFirestore({
     required String msg,
     required String type,
@@ -121,6 +126,8 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF0D0D0D),
+
+      // --- APP BAR (With Profile Navigation & Status Dot) ---
       appBar: AppBar(
         backgroundColor: const Color(0xFF0D0D0D),
         elevation: 0,
@@ -138,47 +145,79 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
               pPic = data['profilePic'] ?? "";
               status = data['status'] ?? "OFFLINE";
             }
-            return Row(
-              children: [
-                GestureDetector(
-                  onTap: () => Navigator.pop(context),
-                  child: const Icon(Icons.arrow_back, color: Colors.white),
-                ),
-                const SizedBox(width: 12),
-                CircleAvatar(
-                  radius: 20,
-                  backgroundColor: Colors.white12,
-                  backgroundImage: pPic.isNotEmpty
-                      ? MemoryImage(base64Decode(pPic))
-                      : null,
-                  child: pPic.isEmpty
-                      ? const Icon(Icons.person, color: Colors.white)
-                      : null,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+
+            return InkWell(
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => ContactProfilePage(
+                      receiverId: widget.receiverId,
+                      receiverName: widget.receiverName,
+                    ),
+                  ),
+                );
+              },
+              child: Row(
+                children: [
+                  GestureDetector(
+                    onTap: () => Navigator.pop(context),
+                    child: const Icon(Icons.arrow_back, color: Colors.white),
+                  ),
+                  const SizedBox(width: 12),
+                  Stack(
                     children: [
-                      Text(
-                        widget.receiverName,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
+                      CircleAvatar(
+                        radius: 20,
+                        backgroundColor: Colors.white12,
+                        backgroundImage: pPic.isNotEmpty
+                            ? MemoryImage(base64Decode(pPic))
+                            : null,
+                        child: pPic.isEmpty
+                            ? const Icon(Icons.person, color: Colors.white)
+                            : null,
                       ),
-                      Text(
-                        status,
-                        style: const TextStyle(
-                          fontSize: 10,
-                          color: Colors.grey,
+                      Positioned(
+                        right: 0,
+                        bottom: 0,
+                        child: Container(
+                          width: 12,
+                          height: 12,
+                          decoration: BoxDecoration(
+                            color: _getStatusColor(status),
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.black, width: 2),
+                          ),
                         ),
                       ),
                     ],
                   ),
-                ),
-              ],
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.receiverName,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
+                        Text(
+                          status,
+                          style: const TextStyle(
+                            fontSize: 10,
+                            color: Colors.grey,
+                            letterSpacing: 1.2,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             );
           },
         ),
@@ -193,6 +232,7 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
           ),
         ],
       ),
+
       body: Column(
         children: [
           Expanded(
@@ -277,7 +317,7 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
                     ),
                   )
                 : type == 'video'
-                ? _buildVideoPlaceholder() // See helper below
+                ? _buildVideoPlaceholder()
                 : Text(content, style: const TextStyle(color: Colors.white)),
           ),
           Text(
@@ -314,7 +354,6 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
       ),
       child: Row(
         children: [
-          // MEDIA SELECTOR BUTTON
           GestureDetector(
             onTap: () => _showMediaOptions(),
             child: Container(
@@ -408,5 +447,12 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
         ],
       ),
     );
+  }
+
+  Color _getStatusColor(String status) {
+    if (status == "ONLINE") return Colors.green;
+    if (status == "GRINDING") return Colors.orange;
+    if (status == "AWAY") return Colors.yellow;
+    return Colors.grey;
   }
 }
