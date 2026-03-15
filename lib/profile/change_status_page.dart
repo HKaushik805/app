@@ -1,6 +1,6 @@
-import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
 
 class ChangeStatusPage extends StatefulWidget {
   final Map<String, dynamic> userData;
@@ -66,9 +66,11 @@ class _ChangeStatusPageState extends State<ChangeStatusPage> {
     );
   }
 
+  // --- LOGIC: SAVE & GLOBAL STATUS SYNC ---
   Future<void> _saveStatus() async {
     setState(() => _isSaving = true);
     try {
+      // 1. Update Master Profile
       await FirebaseFirestore.instance
           .collection('users')
           .doc(currentUser!.uid)
@@ -76,11 +78,32 @@ class _ChangeStatusPageState extends State<ChangeStatusPage> {
             'status': selectedStatus,
             'subtext': _messageController.text.trim(),
           });
+
+      // 2. Global Sync: Update my status in everyone's "Recent Chats" list
+      var myRecentChats = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(currentUser!.uid)
+          .collection('recent_chats')
+          .get();
+
+      if (myRecentChats.docs.isNotEmpty) {
+        WriteBatch batch = FirebaseFirestore.instance.batch();
+        for (var doc in myRecentChats.docs) {
+          // Find the partner's inbox and update my status entry there
+          DocumentReference partnerInboxRef = FirebaseFirestore.instance
+              .collection('users')
+              .doc(doc.id)
+              .collection('recent_chats')
+              .doc(currentUser!.uid);
+
+          batch.update(partnerInboxRef, {'status': selectedStatus});
+        }
+        await batch.commit();
+      }
+
       if (mounted) Navigator.pop(context);
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text("Error: $e")));
+      debugPrint("Status Sync Error: $e");
     } finally {
       setState(() => _isSaving = false);
     }
@@ -89,8 +112,6 @@ class _ChangeStatusPageState extends State<ChangeStatusPage> {
   @override
   Widget build(BuildContext context) {
     double screenWidth = MediaQuery.of(context).size.width;
-
-    // Dynamic column calculation for Desktop vs Mobile
     int crossAxisCount = screenWidth > 900 ? 4 : (screenWidth > 600 ? 3 : 2);
 
     return Scaffold(
@@ -98,7 +119,7 @@ class _ChangeStatusPageState extends State<ChangeStatusPage> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        centerTitle: true, // Better for Desktop
+        centerTitle: true,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white),
           onPressed: () => Navigator.pop(context),
@@ -146,7 +167,6 @@ class _ChangeStatusPageState extends State<ChangeStatusPage> {
       ),
       body: Center(
         child: ConstrainedBox(
-          // This keeps the content from stretching too wide on Desktop
           constraints: const BoxConstraints(maxWidth: 700),
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(24),
@@ -204,12 +224,6 @@ class _ChangeStatusPageState extends State<ChangeStatusPage> {
         color: const Color(0xFF161616),
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: Colors.white.withOpacity(0.05)),
-        boxShadow: [
-          BoxShadow(
-            color: currentOption['color'].withOpacity(0.05),
-            blurRadius: 20,
-          ),
-        ],
       ),
       child: Row(
         children: [
@@ -252,10 +266,9 @@ class _ChangeStatusPageState extends State<ChangeStatusPage> {
                     fontSize: 18,
                   ),
                 ),
-                const SizedBox(height: 4),
                 Text(
                   _messageController.text.isEmpty
-                      ? "No status message set"
+                      ? "No status set"
                       : _messageController.text,
                   style: const TextStyle(color: Colors.grey, fontSize: 14),
                   maxLines: 1,
@@ -271,63 +284,57 @@ class _ChangeStatusPageState extends State<ChangeStatusPage> {
 
   Widget _buildStatusOptionCard(Map<String, dynamic> option) {
     bool isSelected = selectedStatus == option['name'];
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: () => setState(() => selectedStatus = option['name']),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          decoration: BoxDecoration(
+    return GestureDetector(
+      onTap: () => setState(() => selectedStatus = option['name']),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFF1C1C1E) : const Color(0xFF161616),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
             color: isSelected
-                ? const Color(0xFF1C1C1E)
-                : const Color(0xFF161616),
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(
-              color: isSelected
-                  ? const Color(0xFF8E2DE2)
-                  : Colors.white.withOpacity(0.05),
-              width: 1.5,
-            ),
+                ? const Color(0xFF8E2DE2)
+                : Colors.white.withOpacity(0.05),
+            width: 1.5,
           ),
-          child: Stack(
-            children: [
-              Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      option['icon'],
-                      color: isSelected ? option['color'] : Colors.grey[600],
-                      size: 22,
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      option['name'],
-                      style: TextStyle(
-                        color: isSelected ? Colors.white : Colors.grey[500],
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 0.5,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              if (isSelected)
-                Positioned(
-                  top: 10,
-                  right: 10,
-                  child: Container(
-                    width: 8,
-                    height: 8,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFF8E2DE2),
-                      shape: BoxShape.circle,
+        ),
+        child: Stack(
+          children: [
+            Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    option['icon'],
+                    color: isSelected ? option['color'] : Colors.grey[600],
+                    size: 22,
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    option['name'],
+                    style: TextStyle(
+                      color: isSelected ? Colors.white : Colors.grey[500],
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
+                ],
+              ),
+            ),
+            if (isSelected)
+              Positioned(
+                top: 10,
+                right: 10,
+                child: Container(
+                  width: 8,
+                  height: 8,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFF8E2DE2),
+                    shape: BoxShape.circle,
+                  ),
                 ),
-            ],
-          ),
+              ),
+          ],
         ),
       ),
     );
@@ -346,8 +353,7 @@ class _ChangeStatusPageState extends State<ChangeStatusPage> {
             counterText: "",
             filled: true,
             fillColor: const Color(0xFF161616),
-            hintText: "What are you doing right now?",
-            hintStyle: TextStyle(color: Colors.grey[800]),
+            hintText: "What are you doing?",
             contentPadding: const EdgeInsets.symmetric(
               horizontal: 20,
               vertical: 18,
@@ -355,10 +361,6 @@ class _ChangeStatusPageState extends State<ChangeStatusPage> {
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(18),
               borderSide: BorderSide.none,
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(18),
-              borderSide: const BorderSide(color: Color(0xFF8E2DE2), width: 1),
             ),
           ),
         ),
@@ -371,40 +373,31 @@ class _ChangeStatusPageState extends State<ChangeStatusPage> {
     );
   }
 
-  Widget _buildQuickMsgChip(String msg) {
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: () => setState(() => _messageController.text = msg),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-          decoration: BoxDecoration(
-            color: const Color(0xFF161616),
-            borderRadius: BorderRadius.circular(30),
-            border: Border.all(color: Colors.white.withOpacity(0.05)),
-          ),
-          child: Text(
-            msg,
-            style: const TextStyle(color: Colors.white70, fontSize: 13),
-          ),
-        ),
+  Widget _buildQuickMsgChip(String msg) => GestureDetector(
+    onTap: () => setState(() => _messageController.text = msg),
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF161616),
+        borderRadius: BorderRadius.circular(30),
+        border: Border.all(color: Colors.white.withOpacity(0.05)),
       ),
-    );
-  }
-
-  Widget _buildSectionLabel(String label) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 14, left: 4),
       child: Text(
-        label,
-        style: const TextStyle(
-          color: Color(0xFF4C535F),
-          fontSize: 11,
-          fontWeight: FontWeight.w800,
-          letterSpacing: 1.5,
-        ),
+        msg,
+        style: const TextStyle(color: Colors.white70, fontSize: 13),
       ),
-    );
-  }
+    ),
+  );
+  Widget _buildSectionLabel(String label) => Padding(
+    padding: const EdgeInsets.only(bottom: 14, left: 4),
+    child: Text(
+      label,
+      style: const TextStyle(
+        color: Color(0xFF4C535F),
+        fontSize: 11,
+        fontWeight: FontWeight.w800,
+        letterSpacing: 1.5,
+      ),
+    ),
+  );
 }

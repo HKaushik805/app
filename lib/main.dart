@@ -1,11 +1,14 @@
-import 'package:flutter/material.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'firebase_options.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/material.dart';
 
-// Import your pages
 import 'auth/login_page.dart';
+import 'firebase_options.dart';
 import 'main_screen.dart';
+
+// GLOBAL KEY: Allows any file to dismiss the "Undo" bar instantly
+final GlobalKey<ScaffoldMessengerState> messengerKey =
+    GlobalKey<ScaffoldMessengerState>();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -20,12 +23,12 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'GrindChat',
+      // ATTACH THE KEY HERE
+      scaffoldMessengerKey: messengerKey,
       theme: ThemeData(
         brightness: Brightness.dark,
         scaffoldBackgroundColor: const Color(0xFF0D0D0D),
       ),
-      // Check if user is already logged in
       home: StreamBuilder<User?>(
         stream: FirebaseAuth.instance.authStateChanges(),
         builder: (context, snapshot) {
@@ -34,10 +37,7 @@ class MyApp extends StatelessWidget {
               body: Center(child: CircularProgressIndicator()),
             );
           }
-          if (snapshot.hasData) {
-            return const MainScreen(); // If logged in, go to Main Hub
-          }
-          return const LoginPage(); // If not, show Login
+          return snapshot.hasData ? const MainScreen() : const LoginPage();
         },
       ),
     );

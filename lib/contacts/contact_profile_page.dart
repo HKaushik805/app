@@ -43,21 +43,31 @@ class ContactProfilePage extends StatelessWidget {
             .snapshots(),
         builder: (context, snapshot) {
           if (!snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
+            return const Center(
+              child: CircularProgressIndicator(color: Color(0xFF8E2DE2)),
+            );
           }
-          var data = snapshot.data!.data() as Map<String, dynamic>;
+          var data = snapshot.data!.data() as Map<String, dynamic>?;
+          if (data == null)
+            return const Center(
+              child: Text(
+                "User not found",
+                style: TextStyle(color: Colors.white),
+              ),
+            );
+
           String pPic = data['profilePic'] ?? "";
           String status = data['status'] ?? "OFFLINE";
-          String bio = data['subtext'] ?? "No bio available";
+          String bio = data['subtext'] ?? "Stay connected. Stay grinding.";
           String email = data['email'] ?? "No email provided";
-          String phone = data['phone'] ?? "+1 (555) 000-0000";
+          String phone = data['phone'] ?? "Not provided";
 
           return SingleChildScrollView(
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: Column(
               children: [
                 const SizedBox(height: 20),
-                // --- PROFILE IMAGE & STATUS ---
+                // --- FIXED PROFILE IMAGE & STATUS ---
                 _buildProfileAvatar(pPic, status),
 
                 const SizedBox(height: 20),
@@ -124,13 +134,11 @@ class ContactProfilePage extends StatelessWidget {
                 ),
 
                 const SizedBox(height: 40),
-                // --- CONTACT INFORMATION ---
                 _buildSectionLabel("CONTACT INFORMATION"),
                 _buildInfoTile("Phone Number", phone),
                 _buildInfoTile("Email Address", email),
 
                 const SizedBox(height: 30),
-                // --- SETTINGS & ACTIONS ---
                 _buildSectionLabel("SETTINGS & ACTIONS"),
                 _buildActionTile(
                   Icons.star,
@@ -160,7 +168,6 @@ class ContactProfilePage extends StatelessWidget {
     return Stack(
       alignment: Alignment.center,
       children: [
-        // Outer Glow/Border
         Container(
           height: 140,
           width: 140,
@@ -176,18 +183,18 @@ class ContactProfilePage extends StatelessWidget {
             ),
           ),
         ),
-        // Actual Avatar
+        // --- FIXED HYBRID LOGIC HERE ---
         CircleAvatar(
           radius: 60,
-          backgroundColor: Colors.white12,
-          backgroundImage: pPic.isNotEmpty
-              ? MemoryImage(base64Decode(pPic))
-              : null,
+          backgroundColor: Colors.white10,
+          backgroundImage: pPic.startsWith('http')
+              ? NetworkImage(pPic)
+              : (pPic.isNotEmpty ? MemoryImage(base64Decode(pPic)) : null)
+                    as ImageProvider?,
           child: pPic.isEmpty
               ? const Icon(Icons.person, size: 60, color: Colors.white)
               : null,
         ),
-        // Status Dot
         Positioned(
           bottom: 10,
           right: 10,

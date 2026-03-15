@@ -1,7 +1,8 @@
-import 'dart:convert';
-import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
+
+import '../widgets/grind_avatar.dart';
 
 class FriendRequestsPage extends StatelessWidget {
   const FriendRequestsPage({super.key});
@@ -14,6 +15,7 @@ class FriendRequestsPage extends StatelessWidget {
       backgroundColor: const Color(0xFF0D0D0D),
       appBar: AppBar(
         backgroundColor: Colors.transparent,
+        elevation: 0,
         title: const Text("Friend Requests"),
       ),
       body: StreamBuilder<QuerySnapshot>(
@@ -53,28 +55,27 @@ class FriendRequestsPage extends StatelessWidget {
     Map<String, dynamic> req,
     String myUid,
   ) {
+    String senderName = req['senderName'] ?? "Unknown";
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: const Color(0xFF161616),
         borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white.withOpacity(0.05)),
       ),
       child: Row(
         children: [
-          CircleAvatar(
-            backgroundImage:
-                (req['senderPic'] != null && req['senderPic'] != "")
-                ? MemoryImage(base64Decode(req['senderPic']))
-                : null,
-            child: (req['senderPic'] == "" || req['senderPic'] == null)
-                ? const Icon(Icons.person)
-                : null,
+          // --- FIXED: Using GrindAvatar ---
+          GrindAvatar(
+            imageUrl: req['senderPic'] ?? "",
+            radius: 25,
+            name: senderName,
           ),
           const SizedBox(width: 15),
           Expanded(
             child: Text(
-              req['senderName'],
+              senderName,
               style: const TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.bold,
