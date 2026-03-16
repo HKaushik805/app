@@ -23,7 +23,8 @@ class CallRoomPage extends StatefulWidget {
 
 class _CallRoomPageState extends State<CallRoomPage> {
   // --- CONFIG ---
-  final String appId = "YOUR_AGORA_APP_ID"; // <--- PASTE YOUR APP ID HERE
+  final String appId =
+      "d73cadd00815435b96fbb42d9e7fdaed"; // <--- PASTE YOUR APP ID HERE
 
   late RtcEngine _engine;
   bool _localUserJoined = false;
