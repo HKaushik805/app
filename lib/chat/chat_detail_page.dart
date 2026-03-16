@@ -9,9 +9,11 @@ import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
+import '../calls/outgoing_call_screen.dart';
 import '../contacts/contact_profile_page.dart';
 import '../main.dart';
 import '../widgets/grind_avatar.dart';
+import '../widgets/permission_helper.dart';
 
 class ChatDetailPage extends StatefulWidget {
   final String receiverName;
@@ -62,14 +64,6 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
     super.dispose();
   }
 
-  void _scrollToLatest() {
-    _scrollController.animateTo(
-      0.0,
-      duration: const Duration(milliseconds: 500),
-      curve: Curves.easeOutCirc,
-    );
-  }
-
   void _onTextChanged() {
     bool isCurrentlyTyping = _messageController.text.trim().isNotEmpty;
     if (isCurrentlyTyping != _isMeTyping) {
@@ -91,7 +85,7 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
         .collection('recent_chats')
         .doc(widget.receiverId)
         .update({'unreadCount': 0})
-        .catchError((e) => debugPrint("First chat"));
+        .catchError((e) => debugPrint("Init summary"));
   }
 
   void _markMessagesAsRead() {
@@ -121,8 +115,49 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
       HapticFeedback.lightImpact();
       _saveMsg(msg: text, type: 'text');
       _messageController.clear();
-      _scrollToLatest();
+      _scrollController.animateTo(
+        0.0,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
     }
+  }
+
+  void _initiateCall(String type) async {
+    bool hasPermission = await PermissionHelper.checkCallPermissions(
+      context,
+      type == "video",
+    );
+    if (!hasPermission) return;
+    HapticFeedback.mediumImpact();
+    final mySnap = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(currentUserId)
+        .get();
+    final myD = mySnap.data() as Map<String, dynamic>;
+    DocumentReference callRef = await FirebaseFirestore.instance
+        .collection('calls')
+        .add({
+          'callerId': currentUserId,
+          'callerName': myD['name'],
+          'callerPic': myD['profilePic'] ?? "",
+          'receiverId': widget.receiverId,
+          'status': 'dialing',
+          'type': type,
+          'timestamp': FieldValue.serverTimestamp(),
+        });
+    if (mounted)
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (c) => OutgoingCallScreen(
+            receiverName: widget.receiverName,
+            receiverPic: "",
+            callId: callRef.id,
+            type: type,
+          ),
+        ),
+      );
   }
 
   void _saveMsg({
@@ -138,6 +173,8 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
         .collection('users')
         .doc(widget.receiverId)
         .get();
+    final myD = mySnap.data() as Map<String, dynamic>;
+    final partnerD = partnerSnap.data() as Map<String, dynamic>;
 
     await FirebaseFirestore.instance
         .collection('chats')
@@ -153,14 +190,12 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
           'deletedBy': [],
           'isReceived': false,
           'isRead': false,
-          'reactions': {}, // Initialize reactions
+          'reactions': {},
         });
 
     String displayMsg = type == 'image'
         ? "📷 Photo"
         : (type == 'video' ? "🎥 Video" : msg);
-    var d = mySnap.data()!;
-    var pd = partnerSnap.data()!;
 
     await FirebaseFirestore.instance
         .collection('users')
@@ -171,9 +206,9 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
           'lastMessage': displayMsg,
           'timestamp': FieldValue.serverTimestamp(),
           'unreadCount': 0,
-          'name': pd['name'],
-          'profilePic': pd['profilePic'],
-          'status': pd['status'] ?? "ONLINE",
+          'name': partnerD['name'],
+          'profilePic': partnerD['profilePic'],
+          'status': partnerD['status'] ?? "ONLINE",
         }, SetOptions(merge: true));
 
     await FirebaseFirestore.instance
@@ -185,13 +220,12 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
           'lastMessage': displayMsg,
           'timestamp': FieldValue.serverTimestamp(),
           'unreadCount': FieldValue.increment(1),
-          'name': d['name'],
-          'profilePic': d['profilePic'],
-          'status': d['status'] ?? "ONLINE",
+          'name': myD['name'],
+          'profilePic': myD['profilePic'],
+          'status': myD['status'] ?? "ONLINE",
         }, SetOptions(merge: true));
   }
 
-  // --- LOGIC: REACTION UPDATE ---
   void _toggleReaction(
     String messageId,
     String emoji,
@@ -199,19 +233,83 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
   ) async {
     HapticFeedback.heavyImpact();
     Map newReactions = Map.from(existingReactions);
-
     if (newReactions[currentUserId] == emoji) {
-      newReactions.remove(currentUserId); // Remove if same emoji tapped
+      newReactions.remove(currentUserId);
     } else {
-      newReactions[currentUserId] = emoji; // Add/Update emoji
+      newReactions[currentUserId] = emoji;
     }
-
     await FirebaseFirestore.instance
         .collection('chats')
         .doc(getChatId())
         .collection('messages')
         .doc(messageId)
         .update({'reactions': newReactions});
+  }
+
+  void _showDeleteMenu(String id) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF161616),
+      builder: (c) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            leading: const Icon(Icons.person_outline),
+            title: const Text("Delete for me"),
+            onTap: () {
+              Navigator.pop(c);
+              _deleteForMe(id);
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.delete_forever, color: Colors.redAccent),
+            title: const Text("Delete for everyone"),
+            onTap: () {
+              Navigator.pop(c);
+              _deleteForBoth(id);
+            },
+          ),
+          const SizedBox(height: 20),
+        ],
+      ),
+    );
+  }
+
+  void _deleteForMe(String id) async {
+    await FirebaseFirestore.instance
+        .collection('chats')
+        .doc(getChatId())
+        .collection('messages')
+        .doc(id)
+        .update({
+          'deletedBy': FieldValue.arrayUnion([currentUserId]),
+        });
+    messengerKey.currentState?.showSnackBar(
+      SnackBar(
+        content: const Text("Deleted"),
+        behavior: SnackBarBehavior.floating,
+        action: SnackBarAction(
+          label: "Undo",
+          onPressed: () => FirebaseFirestore.instance
+              .collection('chats')
+              .doc(getChatId())
+              .collection('messages')
+              .doc(id)
+              .update({
+                'deletedBy': FieldValue.arrayRemove([currentUserId]),
+              }),
+        ),
+      ),
+    );
+  }
+
+  void _deleteForBoth(String id) async {
+    await FirebaseFirestore.instance
+        .collection('chats')
+        .doc(getChatId())
+        .collection('messages')
+        .doc(id)
+        .delete();
   }
 
   @override
@@ -308,12 +406,12 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
         ),
         actions: [
           IconButton(
-            onPressed: () {},
+            onPressed: () => _initiateCall("audio"),
             icon: const Icon(Icons.phone_outlined, color: Colors.white),
           ),
           IconButton(
-            onPressed: () {},
-            icon: const Icon(Icons.more_vert, color: Colors.white),
+            onPressed: () => _initiateCall("video"),
+            icon: const Icon(Icons.videocam_outlined, color: Colors.white),
           ),
         ],
       ),
@@ -344,6 +442,7 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
                       return !(d.containsKey('deletedBy') &&
                           d['deletedBy'].contains(currentUserId));
                     }).toList();
+
                     return ListView.builder(
                       reverse: true,
                       controller: _scrollController,
@@ -351,12 +450,10 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
                       itemCount: docs.length,
                       itemBuilder: (context, index) {
                         var d = docs[index].data() as Map<String, dynamic>;
-                        String msgId = docs[index].id;
-                        bool isMe = d['senderId'] == currentUserId;
                         return ChatMessageBubble(
-                          messageId: msgId,
+                          messageId: docs[index].id,
                           content: d['message'],
-                          isMe: isMe,
+                          isMe: d['senderId'] == currentUserId,
                           type: d['type'] ?? 'text',
                           time: d['timestamp'] != null
                               ? DateFormat(
@@ -368,11 +465,11 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
                           isReceived: d['isReceived'] ?? false,
                           reactions: d['reactions'] ?? {},
                           onReact: (emoji) => _toggleReaction(
-                            msgId,
+                            docs[index].id,
                             emoji,
                             d['reactions'] ?? {},
                           ),
-                          onLongPress: () => _showDeleteMenu(msgId),
+                          onLongPress: () => _showDeleteMenu(docs[index].id),
                         );
                       },
                     );
@@ -387,7 +484,11 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
               bottom: 100,
               right: 20,
               child: FloatingActionButton.small(
-                onPressed: _scrollToLatest,
+                onPressed: () => _scrollController.animateTo(
+                  0,
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeOut,
+                ),
                 backgroundColor: const Color(0xFF161616),
                 child: const Icon(
                   Icons.arrow_downward,
@@ -400,73 +501,6 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
     );
   }
 
-  // --- DELETE MENU ---
-  void _showDeleteMenu(String msgId) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFF161616),
-      builder: (c) => Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          ListTile(
-            leading: const Icon(Icons.person_outline),
-            title: const Text("Delete for me"),
-            onTap: () {
-              Navigator.pop(c);
-              _deleteForMe(msgId);
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.delete_forever, color: Colors.redAccent),
-            title: const Text("Delete for everyone"),
-            onTap: () {
-              Navigator.pop(c);
-              _deleteForBoth(msgId);
-            },
-          ),
-          const SizedBox(height: 20),
-        ],
-      ),
-    );
-  }
-
-  void _deleteForMe(String id) async {
-    await FirebaseFirestore.instance
-        .collection('chats')
-        .doc(getChatId())
-        .collection('messages')
-        .doc(id)
-        .update({
-          'deletedBy': FieldValue.arrayUnion([currentUserId]),
-        });
-    messengerKey.currentState?.showSnackBar(
-      SnackBar(
-        content: const Text("Deleted"),
-        behavior: SnackBarBehavior.floating,
-        action: SnackBarAction(
-          label: "Undo",
-          onPressed: () => FirebaseFirestore.instance
-              .collection('chats')
-              .doc(getChatId())
-              .collection('messages')
-              .doc(id)
-              .update({
-                'deletedBy': FieldValue.arrayRemove([currentUserId]),
-              }),
-        ),
-      ),
-    );
-  }
-
-  void _deleteForBoth(String id) async {
-    await FirebaseFirestore.instance
-        .collection('chats')
-        .doc(getChatId())
-        .collection('messages')
-        .doc(id)
-        .delete();
-  }
-
   Widget _buildInput() => Container(
     padding: EdgeInsets.only(
       left: 16,
@@ -477,7 +511,31 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
     child: Row(
       children: [
         GestureDetector(
-          onTap: () => _showMediaOptions(),
+          onTap: () => showModalBottomSheet(
+            context: context,
+            backgroundColor: const Color(0xFF161616),
+            builder: (c) => Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.image),
+                  title: const Text("Photo"),
+                  onTap: () {
+                    Navigator.pop(c);
+                    _pickMedia(false);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.videocam),
+                  title: const Text("Video"),
+                  onTap: () {
+                    Navigator.pop(c);
+                    _pickMedia(true);
+                  },
+                ),
+              ],
+            ),
+          ),
           child: Container(
             height: 48,
             width: 48,
@@ -531,38 +589,6 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
     ),
   );
 
-  void _showMediaOptions() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFF161616),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (c) => Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          ListTile(
-            leading: const Icon(Icons.image, color: Color(0xFF8E2DE2)),
-            title: const Text("Send Photo"),
-            onTap: () {
-              Navigator.pop(c);
-              _pickMedia(false);
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.videocam, color: Color(0xFF00D2FF)),
-            title: const Text("Send Video"),
-            onTap: () {
-              Navigator.pop(c);
-              _pickMedia(true);
-            },
-          ),
-          const SizedBox(height: 20),
-        ],
-      ),
-    );
-  }
-
   Future<void> _pickMedia(bool isV) async {
     final f = isV
         ? await ImagePicker().pickVideo(source: ImageSource.gallery)
@@ -605,7 +631,7 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
   }
 }
 
-// --- NEW REUSABLE CHAT BUBBLE WITH REACTIONS & HOVER ---
+// --- SUB-WIDGET 1: CHAT BUBBLE ---
 class ChatMessageBubble extends StatefulWidget {
   final String messageId, content, type, time;
   final bool isMe, isPending, isRead, isReceived;
@@ -634,7 +660,7 @@ class ChatMessageBubble extends StatefulWidget {
 
 class _ChatMessageBubbleState extends State<ChatMessageBubble> {
   bool _isHovered = false;
-  bool _showReactionPanel = false;
+  bool _showPanel = false;
 
   @override
   Widget build(BuildContext context) {
@@ -642,11 +668,11 @@ class _ChatMessageBubbleState extends State<ChatMessageBubble> {
       onEnter: (_) => setState(() => _isHovered = true),
       onExit: (_) => setState(() {
         _isHovered = false;
-        _showReactionPanel = false;
+        _showPanel = false;
       }),
       child: GestureDetector(
         onLongPress: widget.onLongPress,
-        onTap: () => setState(() => _showReactionPanel = !_showReactionPanel),
+        onTap: () => setState(() => _showPanel = !_showPanel),
         child: Align(
           alignment: widget.isMe ? Alignment.centerRight : Alignment.centerLeft,
           child: Column(
@@ -654,9 +680,7 @@ class _ChatMessageBubbleState extends State<ChatMessageBubble> {
                 ? CrossAxisAlignment.end
                 : CrossAxisAlignment.start,
             children: [
-              // --- FLOATING REACTION PANEL ---
-              if (_isHovered || _showReactionPanel) _buildReactionPanel(),
-
+              if (_isHovered || _showPanel) _buildReactionPanel(),
               Stack(
                 clipBehavior: Clip.none,
                 children: [
@@ -703,13 +727,26 @@ class _ChatMessageBubbleState extends State<ChatMessageBubble> {
                                   style: const TextStyle(color: Colors.white),
                                 )),
                   ),
-                  // --- DISPLAYED REACTIONS ---
                   if (widget.reactions.isNotEmpty)
                     Positioned(
                       bottom: -10,
                       right: widget.isMe ? null : -10,
                       left: widget.isMe ? -10 : null,
-                      child: _buildReactionBadge(),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF222222),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.white10),
+                        ),
+                        child: Text(
+                          widget.reactions.values.toSet().join(""),
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      ),
                     ),
                 ],
               ),
@@ -740,45 +777,31 @@ class _ChatMessageBubbleState extends State<ChatMessageBubble> {
 
   Widget _buildReactionPanel() {
     final emojis = ["🔥", "❤️", "👍", "😂", "😮", "😢"];
-    return AnimatedScale(
-      duration: const Duration(milliseconds: 200),
-      scale: 1.0,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 5),
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: const Color(0xFF161616),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: Colors.white10),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: emojis
-              .map(
-                (e) => GestureDetector(
-                  onTap: () => widget.onReact(e),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4),
-                    child: Text(e, style: const TextStyle(fontSize: 18)),
-                  ),
-                ),
-              )
-              .toList(),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildReactionBadge() {
-    String emojiText = widget.reactions.values.toSet().join("");
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      margin: const EdgeInsets.only(bottom: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: const Color(0xFF222222),
-        borderRadius: BorderRadius.circular(10),
+        color: const Color(0xFF161616),
+        borderRadius: BorderRadius.circular(20),
         border: Border.all(color: Colors.white10),
       ),
-      child: Text(emojiText, style: const TextStyle(fontSize: 12)),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: emojis
+            .map(
+              (e) => GestureDetector(
+                onTap: () {
+                  setState(() => _showPanel = false);
+                  widget.onReact(e);
+                },
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: Text(e, style: const TextStyle(fontSize: 18)),
+                ),
+              ),
+            )
+            .toList(),
+      ),
     );
   }
 
@@ -797,7 +820,7 @@ class _ChatMessageBubbleState extends State<ChatMessageBubble> {
   }
 }
 
-// --- BREATHING TYPING INDICATOR ---
+// --- SUB-WIDGET 2: TYPING INDICATOR ---
 class BreathingTypingIndicator extends StatefulWidget {
   const BreathingTypingIndicator({super.key});
   @override

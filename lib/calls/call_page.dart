@@ -1,346 +1,316 @@
-import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
 
-class CallPage extends StatelessWidget {
+import '../widgets/grind_avatar.dart';
+import '../widgets/permission_helper.dart';
+import 'outgoing_call_screen.dart';
+
+class CallPage extends StatefulWidget {
   const CallPage({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final currentUser = FirebaseAuth.instance.currentUser;
+  State<CallPage> createState() => _CallPageState();
+}
 
-    return Scaffold(
-      backgroundColor: const Color(0xFF0D0D0D),
-      body: SafeArea(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // --- APP BAR ---
-            // Using StreamBuilder to show YOUR real status in the header
-            StreamBuilder<DocumentSnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('users')
-                  .doc(currentUser?.uid)
-                  .snapshots(),
-              builder: (context, snapshot) {
-                String status = "GRINDING";
-                if (snapshot.hasData && snapshot.data!.exists) {
-                  var data = snapshot.data!.data() as Map<String, dynamic>;
-                  status = data['status'] ?? "GRINDING";
-                }
+class _CallPageState extends State<CallPage> {
+  final currentUser = FirebaseAuth.instance.currentUser;
+  bool _isInitiating = false;
 
-                return Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16.0,
-                    vertical: 10,
-                  ),
-                  child: Row(
-                    children: [
-                      const CircleAvatar(
-                        backgroundColor: Colors.white,
-                        radius: 20,
-                        child: Icon(
-                          Icons.person,
-                          color: Colors.black,
-                          size: 20,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              "Calls",
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 22,
-                              ),
-                            ),
-                            Row(
-                              children: [
-                                Text(
-                                  "● ",
-                                  style: TextStyle(
-                                    color: status == "OFFLINE"
-                                        ? Colors.grey
-                                        : (status == "AWAY"
-                                              ? Colors.yellow
-                                              : Colors.orange),
-                                    fontSize: 10,
-                                  ),
-                                ),
-                                Text(
-                                  status,
-                                  style: const TextStyle(
-                                    fontSize: 10,
-                                    color: Colors.grey,
-                                    letterSpacing: 1.2,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                      const Icon(Icons.search, color: Colors.white),
-                      const SizedBox(width: 15),
-                      const Icon(Icons.more_vert, color: Colors.white),
-                    ],
-                  ),
-                );
-              },
+  // --- LOGIC: ONE-TAP CALLBACK ---
+  void _initiateCallFromHistory(Map<String, dynamic> data) async {
+    String targetId = data['otherUserId'] ?? "";
+    String targetName = data['otherUserName'] ?? "User";
+    String targetPic = data['otherUserPic'] ?? "";
+    String callType = data['type'] ?? "audio";
+
+    if (targetId.isEmpty || targetId == "unknown") {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Cannot call this user ID.")),
+      );
+      return;
+    }
+
+    // 1. Permissions Check
+    bool hasPermission = await PermissionHelper.checkCallPermissions(
+      context,
+      callType == "video",
+    );
+    if (!hasPermission) return;
+
+    // 2. Show "Dialing..." UI state
+    setState(() => _isInitiating = true);
+    HapticFeedback.mediumImpact();
+
+    try {
+      // 3. Get my data for the receiver's screen
+      final mySnap = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(currentUser!.uid)
+          .get();
+      final myData = mySnap.data() as Map<String, dynamic>;
+
+      // 4. Create the call document
+      DocumentReference callRef = await FirebaseFirestore.instance
+          .collection('calls')
+          .add({
+            'callerId': currentUser!.uid,
+            'callerName': myData['name'] ?? "Someone",
+            'callerPic': myData['profilePic'] ?? "",
+            'receiverId': targetId,
+            'status': 'dialing',
+            'type': callType,
+            'timestamp': FieldValue.serverTimestamp(),
+          });
+
+      // 5. Navigate to Outgoing Screen
+      if (mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => OutgoingCallScreen(
+              receiverName: targetName,
+              receiverPic: targetPic,
+              callId: callRef.id,
+              type: callType,
             ),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint("Call Init Error: $e");
+    } finally {
+      if (mounted) setState(() => _isInitiating = false);
+    }
+  }
 
-            // --- NEW CALL BUTTON ---
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Container(
-                width: double.infinity,
-                height: 55,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(15),
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF8E2DE2), Color(0xFF00D2FF)],
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        Scaffold(
+          backgroundColor: const Color(0xFF0D0D0D),
+          body: SafeArea(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildAppBar(),
+                _buildNewCallBtn(),
+                const Padding(
+                  padding: EdgeInsets.only(left: 16, top: 10, bottom: 10),
+                  child: Text(
+                    "RECENT CALLS",
+                    style: TextStyle(
+                      color: Colors.grey,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.5,
+                    ),
                   ),
                 ),
-                child: const Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.phone_outlined, color: Colors.white),
-                    const SizedBox(width: 10),
-                    const Text(
-                      "New Call",
+                Expanded(
+                  child: StreamBuilder<QuerySnapshot>(
+                    stream: FirebaseFirestore.instance
+                        .collection('users')
+                        .doc(currentUser?.uid)
+                        .collection('call_history')
+                        .orderBy('timestamp', descending: true)
+                        .snapshots(),
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const Center(
+                          child: CircularProgressIndicator(
+                            color: Color(0xFF8E2DE2),
+                          ),
+                        );
+                      }
+                      if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                        return const Center(
+                          child: Text(
+                            "No call history yet",
+                            style: TextStyle(color: Colors.grey),
+                          ),
+                        );
+                      }
+
+                      return ListView.builder(
+                        physics: const BouncingScrollPhysics(),
+                        itemCount: snapshot.data!.docs.length,
+                        itemBuilder: (context, index) {
+                          var data =
+                              snapshot.data!.docs[index].data()
+                                  as Map<String, dynamic>;
+                          return _buildCallTile(data);
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        // --- DIALING OVERLAY ---
+        if (_isInitiating)
+          Container(
+            color: Colors.black.withOpacity(0.8),
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const CircularProgressIndicator(color: Color(0xFF00D2FF)),
+                  const SizedBox(height: 20),
+                  ShaderMask(
+                    shaderCallback: (bounds) => const LinearGradient(
+                      colors: [Color(0xFFD633FF), Color(0xFF00D2FF)],
+                    ).createShader(bounds),
+                    child: const Text(
+                      "DIALING...",
                       style: TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
-                        fontSize: 16,
+                        letterSpacing: 2,
                       ),
                     ),
-                  ],
-                ),
-              ),
-            ),
-
-            const Padding(
-              padding: EdgeInsets.only(left: 16, top: 10, bottom: 10),
-              child: Text(
-                "RECENT CALLS",
-                style: TextStyle(
-                  color: Colors.grey,
-                  fontSize: 11,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 1.5,
-                ),
-              ),
-            ),
-
-            // --- CALL LIST ---
-            Expanded(
-              child: ListView(
-                physics: const BouncingScrollPhysics(),
-                children: const [
-                  CallTile(
-                    name: "Alex Chen",
-                    status: "12:34",
-                    time: "2:45 PM",
-                    typeIcon: Icons.call_received,
-                    typeColor: Colors.green,
-                    actionIcon: Icons.phone_outlined,
                   ),
-                  CallTile(
-                    name: "Alice Thompson",
-                    status: "08:15",
-                    time: "11:20 AM",
-                    typeIcon: Icons.videocam_outlined,
-                    typeColor: Colors.green,
-                    actionIcon: Icons.videocam_outlined,
-                    isVideo: true,
-                  ),
-                  CallTile(
-                    name: "Design Team",
-                    status: "Missed",
-                    time: "9:15 AM",
-                    typeIcon: Icons.call_missed,
-                    typeColor: Colors.red,
-                    actionIcon: Icons.phone_outlined,
-                  ),
-                  CallTile(
-                    name: "Bob Jenkins",
-                    status: "05:42",
-                    time: "Yesterday",
-                    typeIcon: Icons.call_made,
-                    typeColor: Colors.green,
-                    actionIcon: Icons.phone_outlined,
-                  ),
-                  CallTile(
-                    name: "Charlie Davis",
-                    status: "23:10",
-                    time: "Yesterday",
-                    typeIcon: Icons.videocam_outlined,
-                    typeColor: Colors.green,
-                    actionIcon: Icons.videocam_outlined,
-                    isVideo: true,
-                  ),
-                  const SizedBox(height: 100),
                 ],
               ),
             ),
-          ],
-        ),
-      ),
+          ),
+      ],
     );
   }
-}
 
-// --- STATEFUL CALL TILE (UI ONLY) ---
-class CallTile extends StatefulWidget {
-  final String name;
-  final String status;
-  final String time;
-  final IconData typeIcon;
-  final Color typeColor;
-  final IconData actionIcon;
-  final bool isVideo;
+  Widget _buildCallTile(Map<String, dynamic> data) {
+    String name = data['otherUserName'] ?? "Unknown";
+    String pic = data['otherUserPic'] ?? "";
+    String status = data['status'] ?? "";
+    String direction = data['direction'] ?? "";
+    String type = data['type'] ?? "audio";
 
-  const CallTile({
-    super.key,
-    required this.name,
-    required this.status,
-    required this.time,
-    required this.typeIcon,
-    required this.typeColor,
-    required this.actionIcon,
-    this.isVideo = false,
-  });
+    DateTime dt = (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now();
+    String time = DateFormat('hh:mm a').format(dt);
 
-  @override
-  State<CallTile> createState() => _CallTileState();
-}
+    IconData statusIcon;
+    Color iconColor;
 
-class _CallTileState extends State<CallTile> {
-  bool _isHovered = false;
+    if (status == 'accepted') {
+      statusIcon = direction == 'outgoing'
+          ? Icons.call_made
+          : Icons.call_received;
+      iconColor = Colors.greenAccent;
+    } else {
+      statusIcon = Icons.call_missed;
+      iconColor = Colors.redAccent;
+    }
 
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      child: MouseRegion(
-        onEnter: (_) => setState(() => _isHovered = true),
-        onExit: (_) => setState(() => _isHovered = false),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => _initiateCallFromHistory(data), // ONE-TAP TRIGGER
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+          padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: _isHovered
-                ? const Color(0xFF222222)
-                : const Color(0xFF161616),
+            color: const Color(0xFF161616),
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: _isHovered
-                  ? const Color(0xFF8E2DE2).withOpacity(0.5)
-                  : Colors.transparent,
-              width: 1,
-            ),
+            border: Border.all(color: Colors.white.withOpacity(0.02)),
           ),
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(20),
-              splashColor: const Color(0xFF8E2DE2).withOpacity(0.1),
-              onTap: () {
-                // Future logic for starting a call
-              },
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Row(
+          child: Row(
+            children: [
+              GrindAvatar(imageUrl: pic, radius: 28, name: name),
+              const SizedBox(width: 15),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Stack(
+                    Row(
                       children: [
-                        const CircleAvatar(
-                          radius: 28,
-                          backgroundColor: Colors.white,
-                          child: Icon(Icons.person, color: Colors.black),
+                        Text(
+                          name,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15,
+                          ),
                         ),
-                        Positioned(
-                          right: -2,
-                          bottom: -2,
-                          child: Container(
-                            width: 14,
-                            height: 14,
-                            decoration: BoxDecoration(
-                              color: Colors.green,
-                              shape: BoxShape.circle,
-                              border: Border.all(color: Colors.black, width: 2),
-                            ),
+                        if (type == "video") const SizedBox(width: 5),
+                        if (type == "video")
+                          const Icon(
+                            Icons.videocam_outlined,
+                            color: Color(0xFF8E2DE2),
+                            size: 16,
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Icon(statusIcon, color: iconColor, size: 14),
+                        const SizedBox(width: 5),
+                        Text(
+                          "${status.toUpperCase()}  •  $time",
+                          style: const TextStyle(
+                            color: Colors.grey,
+                            fontSize: 11,
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(width: 15),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Text(
-                                widget.name,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 15,
-                                ),
-                              ),
-                              if (widget.isVideo) const SizedBox(width: 5),
-                              if (widget.isVideo)
-                                const Icon(
-                                  Icons.videocam_outlined,
-                                  color: Color(0xFFA259FF),
-                                  size: 16,
-                                ),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          Row(
-                            children: [
-                              Icon(
-                                widget.typeIcon,
-                                color: widget.typeColor,
-                                size: 14,
-                              ),
-                              const SizedBox(width: 5),
-                              Text(
-                                "${widget.status}  •  ${widget.time}",
-                                style: const TextStyle(
-                                  color: Colors.grey,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.05),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(
-                        widget.actionIcon,
-                        color: Colors.grey,
-                        size: 20,
-                      ),
-                    ),
                   ],
                 ),
               ),
-            ),
+              const Icon(Icons.keyboard_arrow_right, color: Colors.white10),
+            ],
           ),
         ),
       ),
     );
   }
+
+  Widget _buildAppBar() => Padding(
+    padding: const EdgeInsets.all(16),
+    child: Row(
+      children: [
+        const Text(
+          "Calls",
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 22,
+          ),
+        ),
+        const Spacer(),
+        const Icon(Icons.search, color: Colors.white),
+      ],
+    ),
+  );
+
+  Widget _buildNewCallBtn() => Padding(
+    padding: const EdgeInsets.all(16.0),
+    child: Container(
+      width: double.infinity,
+      height: 55,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(15),
+        gradient: const LinearGradient(
+          colors: [Color(0xFF8E2DE2), Color(0xFF00D2FF)],
+        ),
+      ),
+      child: const Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.add_call, color: Colors.white),
+          SizedBox(width: 10),
+          Text(
+            "New Call",
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          ),
+        ],
+      ),
+    ),
+  );
 }
