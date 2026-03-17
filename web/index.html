@@ -7,12 +7,6 @@
 
     The path provided below has to start and end with a slash "/" in order for
     it to work correctly.
-
-    For more details:
-    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
-
-    This is a placeholder for base href that will be replaced by the value of
-    the `--base-href` argument provided to `flutter build`.
   -->
   <base href="$FLUTTER_BASE_HREF">
 
@@ -31,17 +25,21 @@
 
   <title>code</title>
   <link rel="manifest" href="manifest.json">
+  
+  <!-- Agora SDK for Video/Audio Calling -->
   <script src="https://download.agora.io/sdk/release/AgoraRTC_N.js"></script>
 </head>
 <body>
-  <!--
-    You can customize the "flutter_bootstrap.js" script.
-    This is useful to provide a custom configuration to the Flutter loader
-    or to give the user feedback during the initialization process.
+  <script>
+    // --- THE PERMANENT FIX FOR WEB RENDERER ---
+    // In Flutter 3.22+, we use this configuration object to force the HTML renderer.
+    // This removes the need for the --web-renderer flag in the terminal.
+    window.flutterConfiguration = {
+      renderer: 'html'
+    };
+  </script>
 
-    For more details:
-    * https://docs.flutter.dev/platform-integration/web/initialization
-  -->
+  <!-- The main Flutter bootstrap script -->
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>
