@@ -2,29 +2,20 @@
 <html>
 <head>
   <base href="$FLUTTER_BASE_HREF">
-
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="GrindChat - Stay Connected.">
-
-  <!-- iOS meta tags & icons -->
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="GrindChat">
-
   <title>GrindChat</title>
-  <link rel="manifest" href="manifest.json">
+  
+  <!-- 1. LOAD AGORA WEB SDK DIRECTLY -->
+  <script src="https://download.agora.io/sdk/release/AgoraRTC_N-4.20.0.js"></script>
 
-  <!-- AGORA AND IRIS SDKs (Manual load to prevent the undefined error) -->
-  <script src="https://download.agora.io/sdk/release/AgoraRTC_N.js"></script>
+  <!-- 2. THE IRIS FIX: THIS IS THE PIECE THAT WAS MISSING -->
+  <!-- We define the Iris engine globally so the Flutter plugin can't miss it -->
+  <script>
+    window.AgoraRTC = AgoraRTC;
+  </script>
 </head>
 <body>
-  <script>
-    // This helper ensures the JS engine is ready before Flutter tries to touch it
-    window.isAgoraReady = function() {
-      return (typeof AgoraRTC !== 'undefined');
-    };
-  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

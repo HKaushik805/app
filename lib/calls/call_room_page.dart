@@ -22,15 +22,15 @@ class CallRoomPage extends StatefulWidget {
 }
 
 class _CallRoomPageState extends State<CallRoomPage> {
-  // --- CONFIG: ENSURE THIS IS YOUR AGORA APP ID ---
-  final String appId = "PASTE_YOUR_AGORA_APP_ID_HERE";
+  // --- CONFIG: PASTE YOUR AGORA APP ID HERE ---
+  final String appId = "d73cadd00815435b96fbb42d9e7fdaed";
 
-  RtcEngine? _engine; // Nullable to prevent calling before init
+  RtcEngine? _engine;
   bool _localUserJoined = false;
   int? _remoteUid;
   bool _isMuted = false;
   bool _isSpeaker = true;
-  String _debugStatus = "Connecting...";
+  String _statusMessage = "Waking up Agora Engine...";
 
   Timer? _timer;
   int _startSeconds = 0;
@@ -39,31 +39,25 @@ class _CallRoomPageState extends State<CallRoomPage> {
   @override
   void initState() {
     super.initState();
-    // Wait for the UI to settle before starting the heavy engine
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      initAgora();
-    });
+    initAgora();
   }
 
   @override
   void dispose() {
     _timer?.cancel();
-    _stopAgora();
+    _cleanupAgora();
     super.dispose();
   }
 
-  Future<void> _stopAgora() async {
+  Future<void> _cleanupAgora() async {
     if (_engine != null) {
       await _engine!.leaveChannel();
       await _engine!.release();
     }
   }
 
-  // --- LOGIC: SAFE INITIALIZATION ---
+  // --- THE ULTIMATE SAFE INIT ---
   Future<void> initAgora() async {
-    // 1. Safety check to prevent crashing if the user navigates back quickly
-    if (!mounted) return;
-
     try {
       _engine = createAgoraRtcEngine();
 
@@ -77,21 +71,19 @@ class _CallRoomPageState extends State<CallRoomPage> {
       _engine!.registerEventHandler(
         RtcEngineEventHandler(
           onJoinChannelSuccess: (RtcConnection connection, int elapsed) {
-            if (mounted) {
+            if (mounted)
               setState(() {
                 _localUserJoined = true;
-                _debugStatus = "Joined Room";
+                _statusMessage = "Secure Line Active";
               });
-              _startTimer();
-            }
+            _startTimer();
           },
           onUserJoined: (RtcConnection connection, int remoteUid, int elapsed) {
-            if (mounted) {
+            if (mounted)
               setState(() {
                 _remoteUid = remoteUid;
-                _debugStatus = "Partner Connected";
+                _statusMessage = "Partner Connected";
               });
-            }
           },
           onUserOffline:
               (
@@ -101,9 +93,9 @@ class _CallRoomPageState extends State<CallRoomPage> {
               ) {
                 _endCall();
               },
-          onError: (err, msg) {
-            debugPrint("AGORA ERROR: $err - $msg");
-            if (mounted) setState(() => _debugStatus = "Error: $err");
+          onError: (ErrorCodeType err, String msg) {
+            debugPrint("RTC Error: $err - $msg");
+            if (mounted) setState(() => _statusMessage = "Signal Weak: $err");
           },
         ),
       );
@@ -128,16 +120,13 @@ class _CallRoomPageState extends State<CallRoomPage> {
         ),
       );
     } catch (e) {
-      debugPrint("AGORA SETUP EXCEPTION: $e");
-
-      // If error is "Iris" related (JS not ready), retry once after a delay
-      if (e.toString().contains("undefined") ||
-          e.toString().contains("createIris")) {
-        if (mounted) setState(() => _debugStatus = "Retrying engine...");
-        await Future.delayed(const Duration(seconds: 2));
-        if (mounted) initAgora();
-      } else {
-        if (mounted) setState(() => _debugStatus = "Setup Failed");
+      debugPrint("AGORA FAIL: $e");
+      // IF FAILED: It means JS isn't ready. Wait 2 seconds and retry.
+      if (mounted) {
+        setState(() => _statusMessage = "Connecting to browser...");
+        Future.delayed(const Duration(seconds: 2), () {
+          if (mounted && !_localUserJoined) initAgora();
+        });
       }
     }
   }
@@ -145,7 +134,7 @@ class _CallRoomPageState extends State<CallRoomPage> {
   void _startTimer() {
     _timer?.cancel();
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (mounted) {
+      if (mounted)
         setState(() {
           _startSeconds++;
           int min = _startSeconds ~/ 60;
@@ -153,12 +142,11 @@ class _CallRoomPageState extends State<CallRoomPage> {
           _timerText =
               "${min.toString().padLeft(2, '0')}:${sec.toString().padLeft(2, '0')}";
         });
-      }
     });
   }
 
   Future<void> _endCall() async {
-    HapticFeedback.heavyImpact();
+    HapticFeedback.lightImpact();
     await FirebaseFirestore.instance
         .collection('calls')
         .doc(widget.callId)
@@ -172,20 +160,23 @@ class _CallRoomPageState extends State<CallRoomPage> {
       backgroundColor: Colors.black,
       body: Stack(
         children: [
-          // 1. REMOTE STREAM
-          Center(child: _remoteVideo()),
+          // 1. REMOTE FEED
+          Center(child: _buildRemoteView()),
 
-          // 2. LOCAL PREVIEW
+          // 2. LOCAL FEED (Only for Video)
           if (widget.isVideo && _localUserJoined && _engine != null)
             Positioned(
               right: 20,
               top: 50,
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(15),
+                borderRadius: BorderRadius.circular(20),
                 child: Container(
-                  width: 120,
-                  height: 180,
-                  color: Colors.black,
+                  width: 110,
+                  height: 160,
+                  decoration: BoxDecoration(
+                    color: Colors.black,
+                    border: Border.all(color: Colors.white10),
+                  ),
                   child: AgoraVideoView(
                     controller: VideoViewController(
                       rtcEngine: _engine!,
@@ -196,7 +187,7 @@ class _CallRoomPageState extends State<CallRoomPage> {
               ),
             ),
 
-          // 3. TOP UI (Timer & Status)
+          // 3. TIMER & STATUS
           Positioned(
             top: 60,
             left: 0,
@@ -207,7 +198,7 @@ class _CallRoomPageState extends State<CallRoomPage> {
                   _timerText,
                   style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 24,
+                    fontSize: 26,
                     fontWeight: FontWeight.bold,
                     letterSpacing: 2,
                   ),
@@ -219,7 +210,7 @@ class _CallRoomPageState extends State<CallRoomPage> {
                     vertical: 6,
                   ),
                   decoration: BoxDecoration(
-                    color: Colors.black54,
+                    color: Colors.black45,
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(color: Colors.white10),
                   ),
@@ -235,7 +226,7 @@ class _CallRoomPageState extends State<CallRoomPage> {
                       ),
                       const SizedBox(width: 8),
                       Text(
-                        _debugStatus,
+                        _statusMessage,
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 10,
@@ -249,7 +240,7 @@ class _CallRoomPageState extends State<CallRoomPage> {
             ),
           ),
 
-          // 4. CONTROLS
+          // 4. ACTION CONTROLS
           Positioned(
             bottom: 50,
             left: 0,
@@ -257,7 +248,7 @@ class _CallRoomPageState extends State<CallRoomPage> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                _circleBtn(
+                _actionBtn(
                   icon: _isMuted ? Icons.mic_off : Icons.mic,
                   onTap: () {
                     setState(() => _isMuted = !_isMuted);
@@ -265,13 +256,13 @@ class _CallRoomPageState extends State<CallRoomPage> {
                   },
                   active: _isMuted,
                 ),
-                _circleBtn(
+                _actionBtn(
                   icon: Icons.call_end,
                   color: Colors.redAccent,
                   onTap: _endCall,
                   isLarge: true,
                 ),
-                _circleBtn(
+                _actionBtn(
                   icon: _isSpeaker ? Icons.volume_up : Icons.volume_down,
                   onTap: () {
                     setState(() => _isSpeaker = !_isSpeaker);
@@ -287,7 +278,7 @@ class _CallRoomPageState extends State<CallRoomPage> {
     );
   }
 
-  Widget _remoteVideo() {
+  Widget _buildRemoteView() {
     if (_remoteUid != null && widget.isVideo && _engine != null) {
       return AgoraVideoView(
         controller: VideoViewController(
@@ -295,29 +286,36 @@ class _CallRoomPageState extends State<CallRoomPage> {
           canvas: VideoCanvas(uid: _remoteUid),
         ),
       );
-    } else if (!widget.isVideo) {
+    } else if (!widget.isVideo && _remoteUid != null) {
       return const Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           CircleAvatar(
-            radius: 60,
-            backgroundColor: Colors.white10,
-            child: Icon(Icons.person, size: 60, color: Colors.white),
+            radius: 65,
+            backgroundColor: Colors.white12,
+            child: Icon(Icons.person, size: 70, color: Colors.white),
           ),
-          SizedBox(height: 20),
+          SizedBox(height: 25),
           Text(
-            "Audio Connection Active",
-            style: TextStyle(color: Colors.white70, fontSize: 16),
+            "Voice Link Established",
+            style: TextStyle(
+              color: Colors.white70,
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
+            ),
           ),
         ],
       );
     }
     return const Center(
-      child: Text("Connecting...", style: TextStyle(color: Colors.white24)),
+      child: Text(
+        "Waiting for connection...",
+        style: TextStyle(color: Colors.white10, fontSize: 14),
+      ),
     );
   }
 
-  Widget _circleBtn({
+  Widget _actionBtn({
     required IconData icon,
     required VoidCallback onTap,
     Color? color,
