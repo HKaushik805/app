@@ -22,15 +22,15 @@ class CallRoomPage extends StatefulWidget {
 }
 
 class _CallRoomPageState extends State<CallRoomPage> {
-  // --- CONFIG: ENSURE THIS IS YOUR LONG AGORA APP ID ---
-  final String appId = "d73cadd00815435b96fbb42d9e7fdaed";
+  // --- CONFIG: ENSURE THIS IS YOUR AGORA APP ID ---
+  final String appId = "PASTE_YOUR_AGORA_APP_ID_HERE";
 
-  late RtcEngine _engine;
+  RtcEngine? _engine; // Nullable to prevent calling before init
   bool _localUserJoined = false;
   int? _remoteUid;
   bool _isMuted = false;
   bool _isSpeaker = true;
-  String _debugStatus = "Waiting for Engine...";
+  String _debugStatus = "Connecting...";
 
   Timer? _timer;
   int _startSeconds = 0;
@@ -39,8 +39,8 @@ class _CallRoomPageState extends State<CallRoomPage> {
   @override
   void initState() {
     super.initState();
-    // Start with a small delay to allow the Page transition to finish
-    Future.delayed(const Duration(seconds: 1), () {
+    // Wait for the UI to settle before starting the heavy engine
+    WidgetsBinding.instance.addPostFrameCallback((_) {
       initAgora();
     });
   }
@@ -48,25 +48,33 @@ class _CallRoomPageState extends State<CallRoomPage> {
   @override
   void dispose() {
     _timer?.cancel();
-    _engine.leaveChannel();
-    _engine.release();
+    _stopAgora();
     super.dispose();
   }
 
-  // --- LOGIC: INITIALIZE AGORA SAFELY ---
+  Future<void> _stopAgora() async {
+    if (_engine != null) {
+      await _engine!.leaveChannel();
+      await _engine!.release();
+    }
+  }
+
+  // --- LOGIC: SAFE INITIALIZATION ---
   Future<void> initAgora() async {
+    // 1. Safety check to prevent crashing if the user navigates back quickly
+    if (!mounted) return;
+
     try {
       _engine = createAgoraRtcEngine();
 
-      // Initialize with Communication profile for better Web stability
-      await _engine.initialize(
+      await _engine!.initialize(
         RtcEngineContext(
           appId: appId,
           channelProfile: ChannelProfileType.channelProfileCommunication,
         ),
       );
 
-      _engine.registerEventHandler(
+      _engine!.registerEventHandler(
         RtcEngineEventHandler(
           onJoinChannelSuccess: (RtcConnection connection, int elapsed) {
             if (mounted) {
@@ -94,21 +102,20 @@ class _CallRoomPageState extends State<CallRoomPage> {
                 _endCall();
               },
           onError: (err, msg) {
-            if (mounted) setState(() => _debugStatus = "Engine Error: $err");
             debugPrint("AGORA ERROR: $err - $msg");
+            if (mounted) setState(() => _debugStatus = "Error: $err");
           },
         ),
       );
 
       if (widget.isVideo) {
-        await _engine.enableVideo();
-        await _engine.startPreview();
+        await _engine!.enableVideo();
+        await _engine!.startPreview();
       } else {
-        await _engine.enableAudio();
+        await _engine!.enableAudio();
       }
 
-      // Join Channel (Token "" works only if App Certificate is DISABLED)
-      await _engine.joinChannel(
+      await _engine!.joinChannel(
         token: "",
         channelId: widget.channelName,
         uid: 0,
@@ -121,13 +128,17 @@ class _CallRoomPageState extends State<CallRoomPage> {
         ),
       );
     } catch (e) {
-      if (mounted) setState(() => _debugStatus = "Retry: JS Not Ready");
       debugPrint("AGORA SETUP EXCEPTION: $e");
 
-      // If JS is not ready, try again in 2 seconds (common on Web)
-      Future.delayed(const Duration(seconds: 2), () {
-        if (mounted && !_localUserJoined) initAgora();
-      });
+      // If error is "Iris" related (JS not ready), retry once after a delay
+      if (e.toString().contains("undefined") ||
+          e.toString().contains("createIris")) {
+        if (mounted) setState(() => _debugStatus = "Retrying engine...");
+        await Future.delayed(const Duration(seconds: 2));
+        if (mounted) initAgora();
+      } else {
+        if (mounted) setState(() => _debugStatus = "Setup Failed");
+      }
     }
   }
 
@@ -165,7 +176,7 @@ class _CallRoomPageState extends State<CallRoomPage> {
           Center(child: _remoteVideo()),
 
           // 2. LOCAL PREVIEW
-          if (widget.isVideo && _localUserJoined)
+          if (widget.isVideo && _localUserJoined && _engine != null)
             Positioned(
               right: 20,
               top: 50,
@@ -177,7 +188,7 @@ class _CallRoomPageState extends State<CallRoomPage> {
                   color: Colors.black,
                   child: AgoraVideoView(
                     controller: VideoViewController(
-                      rtcEngine: _engine,
+                      rtcEngine: _engine!,
                       canvas: const VideoCanvas(uid: 0),
                     ),
                   ),
@@ -238,7 +249,7 @@ class _CallRoomPageState extends State<CallRoomPage> {
             ),
           ),
 
-          // 4. CALL CONTROLS
+          // 4. CONTROLS
           Positioned(
             bottom: 50,
             left: 0,
@@ -250,7 +261,7 @@ class _CallRoomPageState extends State<CallRoomPage> {
                   icon: _isMuted ? Icons.mic_off : Icons.mic,
                   onTap: () {
                     setState(() => _isMuted = !_isMuted);
-                    _engine.muteLocalAudioStream(_isMuted);
+                    _engine?.muteLocalAudioStream(_isMuted);
                   },
                   active: _isMuted,
                 ),
@@ -264,7 +275,7 @@ class _CallRoomPageState extends State<CallRoomPage> {
                   icon: _isSpeaker ? Icons.volume_up : Icons.volume_down,
                   onTap: () {
                     setState(() => _isSpeaker = !_isSpeaker);
-                    _engine.setEnableSpeakerphone(_isSpeaker);
+                    _engine?.setEnableSpeakerphone(_isSpeaker);
                   },
                   active: _isSpeaker,
                 ),
@@ -277,10 +288,10 @@ class _CallRoomPageState extends State<CallRoomPage> {
   }
 
   Widget _remoteVideo() {
-    if (_remoteUid != null && widget.isVideo) {
+    if (_remoteUid != null && widget.isVideo && _engine != null) {
       return AgoraVideoView(
         controller: VideoViewController(
-          rtcEngine: _engine,
+          rtcEngine: _engine!,
           canvas: VideoCanvas(uid: _remoteUid),
         ),
       );
@@ -302,10 +313,7 @@ class _CallRoomPageState extends State<CallRoomPage> {
       );
     }
     return const Center(
-      child: Text(
-        "Connecting to secure server...",
-        style: TextStyle(color: Colors.white24),
-      ),
+      child: Text("Connecting...", style: TextStyle(color: Colors.white24)),
     );
   }
 

@@ -15,11 +15,16 @@
   <title>GrindChat</title>
   <link rel="manifest" href="manifest.json">
 
-  <!-- AGORA WEB SDKs (Must be in this order) -->
+  <!-- AGORA AND IRIS SDKs (Manual load to prevent the undefined error) -->
   <script src="https://download.agora.io/sdk/release/AgoraRTC_N.js"></script>
 </head>
 <body>
-  <!-- Standard Flutter Bootstrap -->
+  <script>
+    // This helper ensures the JS engine is ready before Flutter tries to touch it
+    window.isAgoraReady = function() {
+      return (typeof AgoraRTC !== 'undefined');
+    };
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>
