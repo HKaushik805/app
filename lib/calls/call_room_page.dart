@@ -22,15 +22,16 @@ class CallRoomPage extends StatefulWidget {
 }
 
 class _CallRoomPageState extends State<CallRoomPage> {
-  // --- CONFIG: ENSURE THIS MATCHES YOUR AGORA CONSOLE ---
-  final String appId =
-      "d73cadd00815435b96fbb42d9e7fdaed"; // <--- DOUBLE CHECK THIS APP ID
+  // --- CONFIG ---
+  // Ensure this is your AGORA App ID (NOT your Cloudinary ID)
+  final String appId = "d73cadd00815435b96fbb42d9e7fdaed";
 
   late RtcEngine _engine;
   bool _localUserJoined = false;
   int? _remoteUid;
   bool _isMuted = false;
   bool _isSpeaker = true;
+  String _debugStatus = "Initializing...";
 
   Timer? _timer;
   int _startSeconds = 0;
@@ -53,6 +54,7 @@ class _CallRoomPageState extends State<CallRoomPage> {
   Future<void> initAgora() async {
     try {
       _engine = createAgoraRtcEngine();
+
       await _engine.initialize(
         RtcEngineContext(
           appId: appId,
@@ -63,15 +65,17 @@ class _CallRoomPageState extends State<CallRoomPage> {
       _engine.registerEventHandler(
         RtcEngineEventHandler(
           onJoinChannelSuccess: (RtcConnection connection, int elapsed) {
-            debugPrint("LOG: Local user ${connection.localUid} joined");
             setState(() {
               _localUserJoined = true;
+              _debugStatus = "Joined Room";
             });
-            _startTimer(); // Start timer as soon as YOU join
+            _startTimer();
           },
           onUserJoined: (RtcConnection connection, int remoteUid, int elapsed) {
-            debugPrint("LOG: Remote user $remoteUid joined");
-            setState(() => _remoteUid = remoteUid);
+            setState(() {
+              _remoteUid = remoteUid;
+              _debugStatus = "Connected";
+            });
           },
           onUserOffline:
               (
@@ -79,11 +83,11 @@ class _CallRoomPageState extends State<CallRoomPage> {
                 int remoteUid,
                 UserOfflineReasonType reason,
               ) {
-                debugPrint("LOG: Remote user $remoteUid left");
                 _endCall();
               },
           onError: (err, msg) {
-            debugPrint("LOG: Agora Error: $err - $msg");
+            setState(() => _debugStatus = "Error: $err");
+            debugPrint("AGORA ERROR: $err - $msg");
           },
         ),
       );
@@ -95,7 +99,8 @@ class _CallRoomPageState extends State<CallRoomPage> {
         await _engine.enableAudio();
       }
 
-      // Join with empty token (Only works if project is in "Testing Mode" in Agora Console)
+      // Join Channel
+      // We use "" as token. This ONLY works if App Certificate is DISABLED in Agora Console.
       await _engine.joinChannel(
         token: "",
         channelId: widget.channelName,
@@ -104,10 +109,13 @@ class _CallRoomPageState extends State<CallRoomPage> {
           publishCameraTrack: true,
           publishMicrophoneTrack: true,
           clientRoleType: ClientRoleType.clientRoleBroadcaster,
+          autoSubscribeAudio: true,
+          autoSubscribeVideo: true,
         ),
       );
     } catch (e) {
-      debugPrint("LOG: Initialization Error: $e");
+      setState(() => _debugStatus = "Setup Failed");
+      debugPrint("AGORA SETUP ERROR: $e");
     }
   }
 
@@ -141,21 +149,31 @@ class _CallRoomPageState extends State<CallRoomPage> {
       backgroundColor: Colors.black,
       body: Stack(
         children: [
-          // 1. MAIN VIEW
+          // 1. REMOTE VIDEO
           Center(child: _remoteVideo()),
 
-          // 2. LOCAL PREVIEW (Floating)
-          if (widget.isVideo)
+          // 2. LOCAL PREVIEW
+          if (widget.isVideo && _localUserJoined)
             Positioned(
               right: 20,
               top: 50,
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(15),
-                child: SizedBox(width: 120, height: 180, child: _localVideo()),
+                child: Container(
+                  width: 120,
+                  height: 180,
+                  color: Colors.black,
+                  child: AgoraVideoView(
+                    controller: VideoViewController(
+                      rtcEngine: _engine,
+                      canvas: const VideoCanvas(uid: 0),
+                    ),
+                  ),
+                ),
               ),
             ),
 
-          // 3. TIMER & STATUS
+          // 3. TIMER & DEBUG STATUS
           Positioned(
             top: 60,
             left: 0,
@@ -166,32 +184,34 @@ class _CallRoomPageState extends State<CallRoomPage> {
                   _timerText,
                   style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 20,
+                    fontSize: 24,
                     fontWeight: FontWeight.bold,
-                    letterSpacing: 2,
                   ),
                 ),
                 const SizedBox(height: 5),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(Icons.lock, color: Colors.greenAccent, size: 10),
-                    const SizedBox(width: 5),
-                    Text(
-                      _remoteUid == null ? "WAITING..." : "CONNECTED",
-                      style: const TextStyle(
-                        color: Colors.greenAccent,
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                      ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.black54,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    _debugStatus,
+                    style: const TextStyle(
+                      color: Color(0xFF00D2FF),
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
                     ),
-                  ],
+                  ),
                 ),
               ],
             ),
           ),
 
-          // 4. CONTROLS
+          // 4. BOTTOM CONTROLS
           Positioned(
             bottom: 50,
             left: 0,
@@ -229,21 +249,6 @@ class _CallRoomPageState extends State<CallRoomPage> {
     );
   }
 
-  Widget _localVideo() {
-    if (_localUserJoined && widget.isVideo) {
-      return AgoraVideoView(
-        controller: VideoViewController(
-          rtcEngine: _engine,
-          canvas: const VideoCanvas(uid: 0),
-        ),
-      );
-    }
-    return Container(
-      color: Colors.white10,
-      child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
-    );
-  }
-
   Widget _remoteVideo() {
     if (_remoteUid != null && widget.isVideo) {
       return AgoraVideoView(
@@ -253,26 +258,26 @@ class _CallRoomPageState extends State<CallRoomPage> {
         ),
       );
     } else if (!widget.isVideo) {
-      return const Column(
+      return Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          CircleAvatar(
+          const CircleAvatar(
             radius: 60,
             backgroundColor: Colors.white10,
             child: Icon(Icons.person, size: 60, color: Colors.white),
           ),
-          SizedBox(height: 20),
+          const SizedBox(height: 20),
           Text(
-            "Audio Call Active",
-            style: TextStyle(color: Colors.white70, fontSize: 16),
+            _remoteUid != null ? "Voice Connected" : "Connecting Audio...",
+            style: const TextStyle(color: Colors.white70),
           ),
         ],
       );
     }
     return const Center(
       child: Text(
-        "Connecting to room...",
-        style: TextStyle(color: Colors.grey),
+        "Waiting for partner...",
+        style: TextStyle(color: Colors.white30),
       ),
     );
   }
