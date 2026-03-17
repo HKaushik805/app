@@ -4,18 +4,21 @@
   <base href="$FLUTTER_BASE_HREF">
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="GrindChat - Stay Connected.">
+
   <title>GrindChat</title>
-  
-  <!-- 1. LOAD AGORA WEB SDK DIRECTLY -->
+  <link rel="manifest" href="manifest.json">
+
+  <!-- 1. LOAD AGORA WEB SDK -->
   <script src="https://download.agora.io/sdk/release/AgoraRTC_N-4.20.0.js"></script>
 
-  <!-- 2. THE IRIS FIX: THIS IS THE PIECE THAT WAS MISSING -->
-  <!-- We define the Iris engine globally so the Flutter plugin can't miss it -->
+  <!-- 2. THE BRIDGE FIX -->
   <script>
     window.AgoraRTC = AgoraRTC;
   </script>
 </head>
 <body>
+  <!-- This script installs the service worker and starts the app -->
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>
