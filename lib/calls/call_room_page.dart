@@ -22,8 +22,7 @@ class CallRoomPage extends StatefulWidget {
 }
 
 class _CallRoomPageState extends State<CallRoomPage> {
-  // --- CONFIG ---
-  // Ensure this is your AGORA App ID (NOT your Cloudinary ID)
+  // --- CONFIG: PASTE YOUR LONG AGORA APP ID HERE ---
   final String appId = "d73cadd00815435b96fbb42d9e7fdaed";
 
   late RtcEngine _engine;
@@ -40,7 +39,10 @@ class _CallRoomPageState extends State<CallRoomPage> {
   @override
   void initState() {
     super.initState();
-    initAgora();
+    // Small delay to ensure the Web DOM is ready before Agora starts
+    Future.delayed(const Duration(milliseconds: 500), () {
+      initAgora();
+    });
   }
 
   @override
@@ -65,17 +67,21 @@ class _CallRoomPageState extends State<CallRoomPage> {
       _engine.registerEventHandler(
         RtcEngineEventHandler(
           onJoinChannelSuccess: (RtcConnection connection, int elapsed) {
-            setState(() {
-              _localUserJoined = true;
-              _debugStatus = "Joined Room";
-            });
-            _startTimer();
+            if (mounted) {
+              setState(() {
+                _localUserJoined = true;
+                _debugStatus = "Joined Room";
+              });
+              _startTimer();
+            }
           },
           onUserJoined: (RtcConnection connection, int remoteUid, int elapsed) {
-            setState(() {
-              _remoteUid = remoteUid;
-              _debugStatus = "Connected";
-            });
+            if (mounted) {
+              setState(() {
+                _remoteUid = remoteUid;
+                _debugStatus = "Connected";
+              });
+            }
           },
           onUserOffline:
               (
@@ -86,7 +92,7 @@ class _CallRoomPageState extends State<CallRoomPage> {
                 _endCall();
               },
           onError: (err, msg) {
-            setState(() => _debugStatus = "Error: $err");
+            if (mounted) setState(() => _debugStatus = "Agora Error: $err");
             debugPrint("AGORA ERROR: $err - $msg");
           },
         ),
@@ -99,8 +105,6 @@ class _CallRoomPageState extends State<CallRoomPage> {
         await _engine.enableAudio();
       }
 
-      // Join Channel
-      // We use "" as token. This ONLY works if App Certificate is DISABLED in Agora Console.
       await _engine.joinChannel(
         token: "",
         channelId: widget.channelName,
@@ -114,8 +118,8 @@ class _CallRoomPageState extends State<CallRoomPage> {
         ),
       );
     } catch (e) {
-      setState(() => _debugStatus = "Setup Failed");
-      debugPrint("AGORA SETUP ERROR: $e");
+      if (mounted) setState(() => _debugStatus = "Setup Failed");
+      debugPrint("AGORA SETUP EXCEPTION: $e");
     }
   }
 
@@ -149,10 +153,10 @@ class _CallRoomPageState extends State<CallRoomPage> {
       backgroundColor: Colors.black,
       body: Stack(
         children: [
-          // 1. REMOTE VIDEO
+          // 1. REMOTE VIEW (Full Screen)
           Center(child: _remoteVideo()),
 
-          // 2. LOCAL PREVIEW
+          // 2. LOCAL VIEW (Floating)
           if (widget.isVideo && _localUserJoined)
             Positioned(
               right: 20,
@@ -173,7 +177,7 @@ class _CallRoomPageState extends State<CallRoomPage> {
               ),
             ),
 
-          // 3. TIMER & DEBUG STATUS
+          // 3. TIMER & STATUS DISPLAY
           Positioned(
             top: 60,
             left: 0,
@@ -186,6 +190,7 @@ class _CallRoomPageState extends State<CallRoomPage> {
                     color: Colors.white,
                     fontSize: 24,
                     fontWeight: FontWeight.bold,
+                    letterSpacing: 2,
                   ),
                 ),
                 const SizedBox(height: 5),
@@ -211,7 +216,7 @@ class _CallRoomPageState extends State<CallRoomPage> {
             ),
           ),
 
-          // 4. BOTTOM CONTROLS
+          // 4. BOTTOM CONTROLS (Mute, Speaker, End)
           Positioned(
             bottom: 50,
             left: 0,
