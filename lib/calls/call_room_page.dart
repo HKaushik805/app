@@ -22,7 +22,7 @@ class CallRoomPage extends StatefulWidget {
 }
 
 class _CallRoomPageState extends State<CallRoomPage> {
-  // --- CONFIG: PASTE YOUR LONG AGORA APP ID HERE ---
+  // --- CONFIG: ENSURE THIS IS YOUR LONG AGORA APP ID ---
   final String appId = "d73cadd00815435b96fbb42d9e7fdaed";
 
   late RtcEngine _engine;
@@ -30,7 +30,7 @@ class _CallRoomPageState extends State<CallRoomPage> {
   int? _remoteUid;
   bool _isMuted = false;
   bool _isSpeaker = true;
-  String _debugStatus = "Initializing...";
+  String _debugStatus = "Waiting for Engine...";
 
   Timer? _timer;
   int _startSeconds = 0;
@@ -39,8 +39,8 @@ class _CallRoomPageState extends State<CallRoomPage> {
   @override
   void initState() {
     super.initState();
-    // Small delay to ensure the Web DOM is ready before Agora starts
-    Future.delayed(const Duration(milliseconds: 500), () {
+    // Start with a small delay to allow the Page transition to finish
+    Future.delayed(const Duration(seconds: 1), () {
       initAgora();
     });
   }
@@ -53,10 +53,12 @@ class _CallRoomPageState extends State<CallRoomPage> {
     super.dispose();
   }
 
+  // --- LOGIC: INITIALIZE AGORA SAFELY ---
   Future<void> initAgora() async {
     try {
       _engine = createAgoraRtcEngine();
 
+      // Initialize with Communication profile for better Web stability
       await _engine.initialize(
         RtcEngineContext(
           appId: appId,
@@ -79,7 +81,7 @@ class _CallRoomPageState extends State<CallRoomPage> {
             if (mounted) {
               setState(() {
                 _remoteUid = remoteUid;
-                _debugStatus = "Connected";
+                _debugStatus = "Partner Connected";
               });
             }
           },
@@ -92,7 +94,7 @@ class _CallRoomPageState extends State<CallRoomPage> {
                 _endCall();
               },
           onError: (err, msg) {
-            if (mounted) setState(() => _debugStatus = "Agora Error: $err");
+            if (mounted) setState(() => _debugStatus = "Engine Error: $err");
             debugPrint("AGORA ERROR: $err - $msg");
           },
         ),
@@ -105,6 +107,7 @@ class _CallRoomPageState extends State<CallRoomPage> {
         await _engine.enableAudio();
       }
 
+      // Join Channel (Token "" works only if App Certificate is DISABLED)
       await _engine.joinChannel(
         token: "",
         channelId: widget.channelName,
@@ -118,8 +121,13 @@ class _CallRoomPageState extends State<CallRoomPage> {
         ),
       );
     } catch (e) {
-      if (mounted) setState(() => _debugStatus = "Setup Failed");
+      if (mounted) setState(() => _debugStatus = "Retry: JS Not Ready");
       debugPrint("AGORA SETUP EXCEPTION: $e");
+
+      // If JS is not ready, try again in 2 seconds (common on Web)
+      Future.delayed(const Duration(seconds: 2), () {
+        if (mounted && !_localUserJoined) initAgora();
+      });
     }
   }
 
@@ -153,10 +161,10 @@ class _CallRoomPageState extends State<CallRoomPage> {
       backgroundColor: Colors.black,
       body: Stack(
         children: [
-          // 1. REMOTE VIEW (Full Screen)
+          // 1. REMOTE STREAM
           Center(child: _remoteVideo()),
 
-          // 2. LOCAL VIEW (Floating)
+          // 2. LOCAL PREVIEW
           if (widget.isVideo && _localUserJoined)
             Positioned(
               right: 20,
@@ -177,7 +185,7 @@ class _CallRoomPageState extends State<CallRoomPage> {
               ),
             ),
 
-          // 3. TIMER & STATUS DISPLAY
+          // 3. TOP UI (Timer & Status)
           Positioned(
             top: 60,
             left: 0,
@@ -193,30 +201,44 @@ class _CallRoomPageState extends State<CallRoomPage> {
                     letterSpacing: 2,
                   ),
                 ),
-                const SizedBox(height: 5),
+                const SizedBox(height: 10),
                 Container(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 4,
+                    horizontal: 16,
+                    vertical: 6,
                   ),
                   decoration: BoxDecoration(
                     color: Colors.black54,
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.white10),
                   ),
-                  child: Text(
-                    _debugStatus,
-                    style: const TextStyle(
-                      color: Color(0xFF00D2FF),
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                    ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.circle,
+                        size: 8,
+                        color: _remoteUid == null
+                            ? Colors.orange
+                            : Colors.greenAccent,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        _debugStatus,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
           ),
 
-          // 4. BOTTOM CONTROLS (Mute, Speaker, End)
+          // 4. CALL CONTROLS
           Positioned(
             bottom: 50,
             left: 0,
@@ -263,26 +285,26 @@ class _CallRoomPageState extends State<CallRoomPage> {
         ),
       );
     } else if (!widget.isVideo) {
-      return Column(
+      return const Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const CircleAvatar(
+          CircleAvatar(
             radius: 60,
             backgroundColor: Colors.white10,
             child: Icon(Icons.person, size: 60, color: Colors.white),
           ),
-          const SizedBox(height: 20),
+          SizedBox(height: 20),
           Text(
-            _remoteUid != null ? "Voice Connected" : "Connecting Audio...",
-            style: const TextStyle(color: Colors.white70),
+            "Audio Connection Active",
+            style: TextStyle(color: Colors.white70, fontSize: 16),
           ),
         ],
       );
     }
     return const Center(
       child: Text(
-        "Waiting for partner...",
-        style: TextStyle(color: Colors.white30),
+        "Connecting to secure server...",
+        style: TextStyle(color: Colors.white24),
       ),
     );
   }
@@ -297,8 +319,8 @@ class _CallRoomPageState extends State<CallRoomPage> {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        height: isLarge ? 80 : 60,
-        width: isLarge ? 80 : 60,
+        height: isLarge ? 85 : 65,
+        width: isLarge ? 85 : 65,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           color: color ?? (active ? Colors.white : Colors.white10),
@@ -307,7 +329,7 @@ class _CallRoomPageState extends State<CallRoomPage> {
         child: Icon(
           icon,
           color: active ? Colors.black : Colors.white,
-          size: isLarge ? 35 : 25,
+          size: isLarge ? 38 : 28,
         ),
       ),
     );
