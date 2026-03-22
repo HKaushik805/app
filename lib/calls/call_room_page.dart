@@ -22,7 +22,7 @@ class CallRoomPage extends StatefulWidget {
 }
 
 class _CallRoomPageState extends State<CallRoomPage> {
-  // --- CONFIG: YOUR AGORA APP ID ---
+  // CONFIG: REPLACE WITH YOUR AGORA APP ID
   final String appId = "266b02de60364039a4dcc5baf3093835";
 
   RtcEngine? _engine;
@@ -30,7 +30,7 @@ class _CallRoomPageState extends State<CallRoomPage> {
   int? _remoteUid;
   bool _isMuted = false;
   bool _isSpeaker = true;
-  String _statusMessage = "Syncing with Browser...";
+  String _connectionState = "Synchronizing...";
 
   Timer? _timer;
   int _startSeconds = 0;
@@ -39,33 +39,35 @@ class _CallRoomPageState extends State<CallRoomPage> {
   @override
   void initState() {
     super.initState();
-    // Start the process after the UI has loaded
-    initAgora();
+    _startEngineSequence();
+  }
+
+  // --- ARCHITECTURAL FIX: DELAYED ENGINE BOOT ---
+  Future<void> _startEngineSequence() async {
+    // Professional apps give the browser's main thread 2 seconds to load JS assets
+    // especially on experimental Flutter versions.
+    await Future.delayed(const Duration(seconds: 2));
+    if (mounted) initAgora();
   }
 
   @override
   void dispose() {
     _timer?.cancel();
-    _destroyEngine();
+    _cleanupRTC();
     super.dispose();
   }
 
-  Future<void> _destroyEngine() async {
+  Future<void> _cleanupRTC() async {
     if (_engine != null) {
       await _engine!.leaveChannel();
       await _engine!.release();
     }
   }
 
-  // --- THE MASTER FIX: SAFE STARTUP ---
   Future<void> initAgora() async {
-    if (!mounted) return;
-
     try {
-      // 1. Create instance
       _engine = createAgoraRtcEngine();
 
-      // 2. Initialize
       await _engine!.initialize(
         RtcEngineContext(
           appId: appId,
@@ -73,14 +75,13 @@ class _CallRoomPageState extends State<CallRoomPage> {
         ),
       );
 
-      // 3. Event Listeners
       _engine!.registerEventHandler(
         RtcEngineEventHandler(
           onJoinChannelSuccess: (RtcConnection connection, int elapsed) {
             if (mounted)
               setState(() {
                 _localUserJoined = true;
-                _statusMessage = "Secure Line Active";
+                _connectionState = "Secure Line Active";
               });
             _startTimer();
           },
@@ -88,7 +89,7 @@ class _CallRoomPageState extends State<CallRoomPage> {
             if (mounted)
               setState(() {
                 _remoteUid = remoteUid;
-                _statusMessage = "Connected";
+                _connectionState = "Partner Connected";
               });
           },
           onUserOffline:
@@ -97,15 +98,14 @@ class _CallRoomPageState extends State<CallRoomPage> {
                 int remoteUid,
                 UserOfflineReasonType reason,
               ) {
-                _endCall();
+                _handleHangup();
               },
-          onError: (err, msg) {
-            if (mounted) setState(() => _statusMessage = "Signal Error: $err");
+          onError: (ErrorCodeType err, String msg) {
+            if (mounted) setState(() => _connectionState = "RTC Error: $err");
           },
         ),
       );
 
-      // 4. Configure Media
       if (widget.isVideo) {
         await _engine!.enableVideo();
         await _engine!.startPreview();
@@ -113,7 +113,6 @@ class _CallRoomPageState extends State<CallRoomPage> {
         await _engine!.enableAudio();
       }
 
-      // 5. Join
       await _engine!.joinChannel(
         token: "",
         channelId: widget.channelName,
@@ -127,18 +126,13 @@ class _CallRoomPageState extends State<CallRoomPage> {
         ),
       );
     } catch (e) {
-      debugPrint("AGORA BOOT ERROR: $e");
-      // --- THE RECURSIVE FIX ---
-      // If JS isn't ready yet, wait 2 seconds and try again instead of crashing
-      if (e.toString().contains("undefined") ||
-          e.toString().contains("createIris")) {
-        if (mounted) {
-          setState(() => _statusMessage = "Waking up Engine...");
-          await Future.delayed(const Duration(seconds: 2));
-          initAgora();
-        }
-      } else {
-        if (mounted) setState(() => _statusMessage = "Permission Denied");
+      debugPrint("ENGINE CRITICAL FAILURE: $e");
+      // If the 'createIrisApiEngine' error persists, we catch it here to prevent white screen
+      if (mounted) {
+        setState(() => _connectionState = "Retrying link...");
+        Future.delayed(const Duration(seconds: 3), () {
+          if (mounted && !_localUserJoined) initAgora();
+        });
       }
     }
   }
@@ -157,7 +151,7 @@ class _CallRoomPageState extends State<CallRoomPage> {
     });
   }
 
-  Future<void> _endCall() async {
+  Future<void> _handleHangup() async {
     HapticFeedback.lightImpact();
     await FirebaseFirestore.instance
         .collection('calls')
@@ -169,19 +163,17 @@ class _CallRoomPageState extends State<CallRoomPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0D0D0D),
+      backgroundColor: Colors.black,
       body: Stack(
         children: [
-          // 1. REMOTE VIEW
           Center(child: _buildRemoteView()),
 
-          // 2. LOCAL VIEW (Video Overlay)
           if (widget.isVideo && _localUserJoined && _engine != null)
             Positioned(
               right: 20,
               top: 50,
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(15),
+                borderRadius: BorderRadius.circular(20),
                 child: Container(
                   width: 110,
                   height: 160,
@@ -196,7 +188,6 @@ class _CallRoomPageState extends State<CallRoomPage> {
               ),
             ),
 
-          // 3. TOP OVERLAY
           Positioned(
             top: 60,
             left: 0,
@@ -207,79 +198,46 @@ class _CallRoomPageState extends State<CallRoomPage> {
                   _timerText,
                   style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 24,
+                    fontSize: 26,
                     fontWeight: FontWeight.bold,
                     letterSpacing: 2,
                   ),
                 ),
                 const SizedBox(height: 10),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.black54,
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: Colors.white10),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.circle,
-                        size: 8,
-                        color: _remoteUid == null
-                            ? Colors.orange
-                            : Colors.greenAccent,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        _statusMessage,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+                _statusBadge(),
               ],
             ),
           ),
 
-          // 4. ACTION BUTTONS
-          Positioned(
-            bottom: 50,
-            left: 0,
-            right: 0,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _actionBtn(
-                  icon: _isMuted ? Icons.mic_off : Icons.mic,
-                  onTap: () {
-                    setState(() => _isMuted = !_isMuted);
-                    _engine?.muteLocalAudioStream(_isMuted);
-                  },
-                  active: _isMuted,
-                ),
-                _actionBtn(
-                  icon: Icons.call_end,
-                  color: Colors.redAccent,
-                  onTap: _endCall,
-                  isLarge: true,
-                ),
-                _actionBtn(
-                  icon: _isSpeaker ? Icons.volume_up : Icons.volume_down,
-                  onTap: () {
-                    setState(() => _isSpeaker = !_isSpeaker);
-                    _engine?.setEnableSpeakerphone(_isSpeaker);
-                  },
-                  active: _isSpeaker,
-                ),
-              ],
+          _buildControls(),
+        ],
+      ),
+    );
+  }
+
+  Widget _statusBadge() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.black45,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.circle,
+            size: 8,
+            color: _remoteUid == null ? Colors.orange : Colors.greenAccent,
+          ),
+          const SizedBox(width: 8),
+          Text(
+            _connectionState,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
             ),
           ),
         ],
@@ -306,7 +264,7 @@ class _CallRoomPageState extends State<CallRoomPage> {
           ),
           SizedBox(height: 25),
           Text(
-            "Voice Active",
+            "Audio Session Active",
             style: TextStyle(color: Colors.white70, fontSize: 16),
           ),
         ],
@@ -314,13 +272,48 @@ class _CallRoomPageState extends State<CallRoomPage> {
     }
     return const Center(
       child: Text(
-        "Connecting to GrindChat Link...",
+        "Initializing Secure Handshake...",
         style: TextStyle(color: Colors.white10, fontSize: 14),
       ),
     );
   }
 
-  Widget _actionBtn({
+  Widget _buildControls() {
+    return Positioned(
+      bottom: 50,
+      left: 0,
+      right: 0,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          _controlCircle(
+            icon: _isMuted ? Icons.mic_off : Icons.mic,
+            onTap: () {
+              setState(() => _isMuted = !_isMuted);
+              _engine?.muteLocalAudioStream(_isMuted);
+            },
+            active: _isMuted,
+          ),
+          _controlCircle(
+            icon: Icons.call_end,
+            color: Colors.redAccent,
+            onTap: _handleHangup,
+            isLarge: true,
+          ),
+          _controlCircle(
+            icon: _isSpeaker ? Icons.volume_up : Icons.volume_down,
+            onTap: () {
+              setState(() => _isSpeaker = !_isSpeaker);
+              _engine?.setEnableSpeakerphone(_isSpeaker);
+            },
+            active: _isSpeaker,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _controlCircle({
     required IconData icon,
     required VoidCallback onTap,
     Color? color,
