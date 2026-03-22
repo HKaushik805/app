@@ -22,16 +22,15 @@ class CallRoomPage extends StatefulWidget {
 }
 
 class _CallRoomPageState extends State<CallRoomPage> {
-  // --- CONFIG: ENSURE THIS IS YOUR AGORA APP ID ---
-  final String appId =
-      "266b02de60364039a4dcc5baf3093835"; // <--- Replace with your ACTUAL App ID if this is wrong
+  // --- CONFIG: PASTE YOUR AGORA APP ID HERE ---
+  final String appId = "266b02de60364039a4dcc5baf3093835";
 
   RtcEngine? _engine;
   bool _localUserJoined = false;
   int? _remoteUid;
   bool _isMuted = false;
   bool _isSpeaker = true;
-  String _statusMessage = "Syncing with Browser...";
+  String _statusMessage = "Waking up Engine...";
 
   Timer? _timer;
   int _startSeconds = 0;
@@ -40,7 +39,10 @@ class _CallRoomPageState extends State<CallRoomPage> {
   @override
   void initState() {
     super.initState();
-    initAgora();
+    // Give the browser time to breathe
+    Future.delayed(const Duration(seconds: 1), () {
+      initAgora();
+    });
   }
 
   @override
@@ -57,7 +59,6 @@ class _CallRoomPageState extends State<CallRoomPage> {
     }
   }
 
-  // --- THE ULTIMATE SAFE START ---
   Future<void> initAgora() async {
     if (!mounted) return;
 
@@ -77,7 +78,7 @@ class _CallRoomPageState extends State<CallRoomPage> {
             if (mounted)
               setState(() {
                 _localUserJoined = true;
-                _statusMessage = "Joined Room";
+                _statusMessage = "Live Connection";
               });
             _startTimer();
           },
@@ -85,7 +86,7 @@ class _CallRoomPageState extends State<CallRoomPage> {
             if (mounted)
               setState(() {
                 _remoteUid = remoteUid;
-                _statusMessage = "Connected";
+                _statusMessage = "Partner Connected";
               });
           },
           onUserOffline:
@@ -119,12 +120,12 @@ class _CallRoomPageState extends State<CallRoomPage> {
         ),
       );
     } catch (e) {
-      debugPrint("LOG ERROR: $e");
-      // IF THE BROWSER IS NOT READY, RETRY ONCE AFTER 2 SECONDS
+      debugPrint("AGORA ERROR: $e");
+      // --- THE FIX: If the browser isn't ready, don't crash, just retry ---
       if (e.toString().contains("undefined") ||
           e.toString().contains("createIris")) {
         if (mounted) {
-          setState(() => _statusMessage = "Waking up Engine...");
+          setState(() => _statusMessage = "Syncing with browser...");
           await Future.delayed(const Duration(seconds: 2));
           initAgora();
         }
@@ -195,17 +196,42 @@ class _CallRoomPageState extends State<CallRoomPage> {
                   _timerText,
                   style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 24,
+                    fontSize: 26,
                     fontWeight: FontWeight.bold,
+                    letterSpacing: 2,
                   ),
                 ),
-                const SizedBox(height: 5),
-                Text(
-                  _statusMessage,
-                  style: const TextStyle(
-                    color: Color(0xFF00D2FF),
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.black45,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.white10),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.circle,
+                        size: 8,
+                        color: _remoteUid == null
+                            ? Colors.orange
+                            : Colors.greenAccent,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        _statusMessage,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -219,7 +245,7 @@ class _CallRoomPageState extends State<CallRoomPage> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                _btn(
+                _actionBtn(
                   icon: _isMuted ? Icons.mic_off : Icons.mic,
                   onTap: () {
                     setState(() => _isMuted = !_isMuted);
@@ -227,13 +253,13 @@ class _CallRoomPageState extends State<CallRoomPage> {
                   },
                   active: _isMuted,
                 ),
-                _btn(
+                _actionBtn(
                   icon: Icons.call_end,
                   color: Colors.redAccent,
                   onTap: _endCall,
                   isLarge: true,
                 ),
-                _btn(
+                _actionBtn(
                   icon: _isSpeaker ? Icons.volume_up : Icons.volume_down,
                   onTap: () {
                     setState(() => _isSpeaker = !_isSpeaker);
@@ -262,21 +288,27 @@ class _CallRoomPageState extends State<CallRoomPage> {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           CircleAvatar(
-            radius: 60,
-            backgroundColor: Colors.white10,
-            child: Icon(Icons.person, size: 60, color: Colors.white),
+            radius: 65,
+            backgroundColor: Colors.white12,
+            child: Icon(Icons.person, size: 70, color: Colors.white),
           ),
-          SizedBox(height: 20),
-          Text("Audio Connected", style: TextStyle(color: Colors.white70)),
+          SizedBox(height: 25),
+          Text(
+            "Voice Active",
+            style: TextStyle(color: Colors.white70, fontSize: 16),
+          ),
         ],
       );
     }
     return const Center(
-      child: Text("Connecting...", style: TextStyle(color: Colors.white30)),
+      child: Text(
+        "Connecting...",
+        style: TextStyle(color: Colors.white10, fontSize: 14),
+      ),
     );
   }
 
-  Widget _btn({
+  Widget _actionBtn({
     required IconData icon,
     required VoidCallback onTap,
     Color? color,
@@ -286,16 +318,17 @@ class _CallRoomPageState extends State<CallRoomPage> {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        height: isLarge ? 80 : 60,
-        width: isLarge ? 80 : 60,
+        height: isLarge ? 85 : 65,
+        width: isLarge ? 85 : 65,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           color: color ?? (active ? Colors.white : Colors.white10),
+          border: Border.all(color: Colors.white.withOpacity(0.1)),
         ),
         child: Icon(
           icon,
           color: active ? Colors.black : Colors.white,
-          size: isLarge ? 35 : 25,
+          size: isLarge ? 38 : 28,
         ),
       ),
     );

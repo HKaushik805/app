@@ -12,13 +12,13 @@
   <!-- 1. LOAD AGORA WEB SDK -->
   <script src="https://download.agora.io/sdk/release/AgoraRTC_N-4.20.0.js"></script>
 
-  <!-- 2. THE BRIDGE FIX -->
+  <!-- 2. MANUALLY DEFINE THE BRIDGE (This stops the 'undefined' error) -->
   <script>
     window.AgoraRTC = AgoraRTC;
   </script>
 </head>
 <body>
-  <!-- This script installs the service worker and starts the app -->
+  <!-- Standard Flutter Bootstrap -->
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>
