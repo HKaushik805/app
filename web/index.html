@@ -4,15 +4,9 @@
   <base href="$FLUTTER_BASE_HREF">
   <meta charset="UTF-8">
   <title>GrindChat</title>
-  
-  <!-- PRO TIP: Load Agora before the Flutter Engine to ensure Iris is present -->
-  <script src="https://download.agora.io/sdk/release/AgoraRTC_N-4.20.0.js" type="text/javascript"></script>
 </head>
 <body>
-  <script>
-    // Global bridge definition
-    window.AgoraRTC = AgoraRTC;
-  </script>
+  <!-- No external Agora scripts needed! Zego handles it via the package -->
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>
