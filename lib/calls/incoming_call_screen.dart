@@ -40,7 +40,8 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
         .listen((snap) {
       if (!snap.exists ||
           snap.data()?['status'] == 'cancelled' ||
-          snap.data()?['status'] == 'missed') {
+          snap.data()?['status'] == 'missed' ||
+          snap.data()?['status'] == 'ended') {
         if (mounted) Navigator.pop(context);
       }
     });
@@ -57,6 +58,7 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
           .doc(widget.callId)
           .update({'status': 'accepted'});
       if (mounted) {
+        // SWAP the incoming screen for the Call Room Bridge
         Navigator.pushReplacement(
             context,
             MaterialPageRoute(

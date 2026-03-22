@@ -41,6 +41,7 @@ class _OutgoingCallScreenState extends State<OutgoingCallScreen> {
         String s = snap.data()?['status'] ?? "";
         if (s == 'accepted') {
           if (mounted) {
+            // SWAP for the Jitsi Bridge
             Navigator.pushReplacement(
                 context,
                 MaterialPageRoute(
