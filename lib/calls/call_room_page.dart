@@ -1,6 +1,9 @@
+import 'dart:ui_web' as ui; // Modern 2026 Flutter Web API
+
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:web/web.dart' as web; // Required for HTML IFrame elements
 
 class CallRoomPage extends StatefulWidget {
   final String callId;
@@ -13,70 +16,72 @@ class CallRoomPage extends StatefulWidget {
 }
 
 class _CallRoomPageState extends State<CallRoomPage> {
+  final String viewID = "grind-chat-iframe";
   final currentUser = FirebaseAuth.instance.currentUser;
 
   @override
   void initState() {
     super.initState();
-    // Start the launch process
-    _launchJitsiCall();
+    _registerIFrame();
   }
 
-  String _sanitizeId(String id) {
-    return id.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
-  }
-
-  Future<void> _launchJitsiCall() async {
-    final String cleanId = _sanitizeId(widget.callId);
+  void _registerIFrame() {
+    final String roomName =
+        "GrindChat_${widget.callId.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '')}";
     final String userName = currentUser?.displayName ?? "GrindUser";
 
-    // --- THE ULTIMATE BYPASS & REDIRECT URL ---
-    // #config.prejoinPageEnabled=false -> Skips the 'Check Camera' screen
-    // &userInfo.displayName -> Sets name automatically
-    // &config.disableDeepLinking=true -> Prevents "Open in App" popups on mobile browsers
-    final String jitsiUrl = "https://meet.jit.si/GrindChat_$cleanId"
+    // --- THE FAIL-PROOF PROFESSIONAL URL (Bypasses Login) ---
+    final String jitsiUrl =
+        "https://8x8.vc/vpaas-magic-cookie-3075064bd76a9dc625b76963d41fc289de44242a2634f53cbb8307420301a71b/$roomName"
         "#config.prejoinPageEnabled=false"
         "&config.disableDeepLinking=true"
+        "&config.hideLogo=true"
         "&userInfo.displayName=\"$userName\"";
 
-    final Uri url = Uri.parse(jitsiUrl);
+    // Registering the view for Flutter Web
+    ui.platformViewRegistry.registerViewFactory(viewID, (int viewId) {
+      final iframe = web.HTMLIFrameElement()
+        ..src = jitsiUrl
+        ..style.border = 'none'
+        ..width = '100%'
+        ..height = '100%'
+        ..allow =
+            "camera; microphone; display-capture; autoplay; clipboard-write";
+      return iframe;
+    });
+  }
 
-    try {
-      if (await canLaunchUrl(url)) {
-        // --- ARCHITECTURAL DECISION: Use _blank for Web State Persistence ---
-        await launchUrl(
-          url,
-          mode: LaunchMode.externalApplication,
-        );
-      }
-    } catch (e) {
-      debugPrint("Call Launch Error: $e");
-    }
+  Future<void> _terminateCall() async {
+    // 1. Update database status
+    await FirebaseFirestore.instance
+        .collection('calls')
+        .doc(widget.callId)
+        .update({'status': 'ended'});
 
-    // IMMEDIATELY pop this page so the user is back on their previous screen
-    // (Chat or Calls) in the background while the call happens in the new tab.
+    // 2. Return to the previous page (Chat or Contacts)
     if (mounted) Navigator.pop(context);
   }
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(
+    return Scaffold(
       backgroundColor: Colors.black,
-      body: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            CircularProgressIndicator(color: Color(0xFF00D2FF)),
-            SizedBox(height: 25),
-            Text("LAUNCHING SECURE CALL...",
-                style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 2)),
-          ],
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF161616),
+        elevation: 0,
+        centerTitle: true,
+        title: const Text("SECURE ENCRYPTED LINE",
+            style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: Colors.white70,
+                letterSpacing: 2)),
+        leading: IconButton(
+          icon: const Icon(Icons.close, color: Colors.redAccent),
+          onPressed: _terminateCall, // Standard "Cut Call" logic
         ),
       ),
+      body: HtmlElementView(viewType: viewID),
     );
   }
 }

@@ -145,7 +145,7 @@ class _MainScreenState extends State<MainScreen> {
           if (snapshot.hasData) {
             for (var doc in snapshot.data!.docs) {
               var d = doc.data() as Map<String, dynamic>;
-              // --- FIXED: NUM TO INT CASTING ---
+              // FIX: Clean num to int casting
               total += (d['unreadCount'] as num? ?? 0).toInt();
             }
           }

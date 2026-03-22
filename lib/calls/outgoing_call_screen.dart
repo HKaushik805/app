@@ -41,14 +41,16 @@ class _OutgoingCallScreenState extends State<OutgoingCallScreen> {
         String s = snap.data()?['status'] ?? "";
         if (s == 'accepted') {
           if (mounted) {
-            // SWAP for the Jitsi Bridge
             Navigator.pushReplacement(
                 context,
                 MaterialPageRoute(
                     builder: (c) => CallRoomPage(
                         callId: widget.callId, channelName: widget.callId)));
           }
-        } else if (s == 'declined' || s == 'missed' || s == 'ended') {
+        } else if (s == 'declined' ||
+            s == 'missed' ||
+            s == 'ended' ||
+            s == 'cancelled') {
           if (mounted) Navigator.pop(context);
         }
       }

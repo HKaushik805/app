@@ -58,7 +58,7 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
           .doc(widget.callId)
           .update({'status': 'accepted'});
       if (mounted) {
-        // SWAP the incoming screen for the Call Room Bridge
+        // Swap UI for the IFrame Room
         Navigator.pushReplacement(
             context,
             MaterialPageRoute(
