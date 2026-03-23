@@ -11,7 +11,11 @@ import 'call_history_manager.dart';
 import 'call_room_page.dart';
 
 class IncomingCallScreen extends StatefulWidget {
-  final String callerName, callerPic, callId, type;
+  final String callerName;
+  final String callerPic;
+  final String callId;
+  final String type;
+
   const IncomingCallScreen(
       {super.key,
       required this.callerName,
@@ -40,8 +44,7 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
         .listen((snap) {
       if (!snap.exists ||
           snap.data()?['status'] == 'cancelled' ||
-          snap.data()?['status'] == 'missed' ||
-          snap.data()?['status'] == 'ended') {
+          snap.data()?['status'] == 'missed') {
         if (mounted) Navigator.pop(context);
       }
     });
@@ -58,7 +61,6 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
           .doc(widget.callId)
           .update({'status': 'accepted'});
       if (mounted) {
-        // Swap UI for the IFrame Room
         Navigator.pushReplacement(
             context,
             MaterialPageRoute(
@@ -75,7 +77,7 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
         callerName: widget.callerName,
         callerPic: widget.callerPic,
         receiverId: myId,
-        receiverName: myData['name'],
+        receiverName: myData['name'] ?? "User",
         receiverPic: myData['profilePic'] ?? "",
         type: widget.type,
         status: action,
@@ -87,22 +89,23 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.black,
       body: Stack(children: [
         Container(
-            decoration: BoxDecoration(
-                image: widget.callerPic.startsWith('http')
+          decoration: BoxDecoration(
+            image: widget.callerPic.startsWith('http')
+                ? DecorationImage(
+                    image: NetworkImage(widget.callerPic), fit: BoxFit.cover)
+                : (widget.callerPic.isNotEmpty
                     ? DecorationImage(
-                        image: NetworkImage(widget.callerPic),
+                        image: MemoryImage(base64Decode(widget.callerPic)),
                         fit: BoxFit.cover)
-                    : (widget.callerPic.isNotEmpty
-                        ? DecorationImage(
-                            image: MemoryImage(base64Decode(widget.callerPic)),
-                            fit: BoxFit.cover)
-                        : null),
-                color: Colors.black),
-            child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
-                child: Container(color: Colors.black.withOpacity(0.8)))),
+                    : null),
+          ),
+          child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
+              child: Container(color: Colors.black.withOpacity(0.8))),
+        ),
         SafeArea(
             child: Column(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,

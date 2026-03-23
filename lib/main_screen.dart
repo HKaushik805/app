@@ -10,7 +10,7 @@ import 'calls/call_page.dart';
 import 'calls/incoming_call_screen.dart';
 import 'chat/chat_page.dart';
 import 'contacts/contacts_page.dart';
-import 'main.dart';
+import 'main.dart'; // To access global messengerKey
 import 'profile/profile_page.dart';
 
 class MainScreen extends StatefulWidget {
@@ -25,6 +25,7 @@ class _MainScreenState extends State<MainScreen> {
   late StreamSubscription<List<ConnectivityResult>> _connectivitySubscription;
   bool _isOffline = false;
   bool _showBackOnline = false;
+  bool _isCallScreenOpen = false;
   Timer? _callTimeoutTimer;
 
   final List<Widget> _pages = [
@@ -39,11 +40,12 @@ class _MainScreenState extends State<MainScreen> {
     super.initState();
     _connectivitySubscription = Connectivity()
         .onConnectivityChanged
-        .listen((results) => _updateConnectionStatus(results.first));
-    _listenForIncomingCalls();
+        .listen((results) => _updateStatus(results.first));
+    _listenForCalls();
   }
 
-  void _listenForIncomingCalls() {
+  // --- LOGIC: FIXED CALL LISTENER ---
+  void _listenForCalls() {
     if (currentUser == null) return;
     FirebaseFirestore.instance
         .collection('calls')
@@ -51,36 +53,42 @@ class _MainScreenState extends State<MainScreen> {
         .where('status', isEqualTo: 'dialing')
         .snapshots()
         .listen((snapshot) {
-      if (snapshot.docs.isNotEmpty) {
+      if (snapshot.docs.isNotEmpty && !_isCallScreenOpen) {
         var doc = snapshot.docs.first;
-        var data = doc.data();
+        Map<String, dynamic> data = doc.data();
+
+        setState(() => _isCallScreenOpen = true);
+
         if (mounted) {
-          _startCallTimeout(doc.id, data);
+          _startTimeout(doc.id, data);
           Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                      builder: (c) => IncomingCallScreen(
-                          callerName: data['callerName'] ?? "User",
-                          callerPic: data['callerPic'] ?? "",
-                          callId: doc.id,
-                          type: data['type'] ?? "audio")))
-              .then((_) => _callTimeoutTimer?.cancel());
+            context,
+            MaterialPageRoute(
+              builder: (context) => IncomingCallScreen(
+                callerName: data['callerName'] ?? "Unknown",
+                callerPic: data['callerPic'] ?? "",
+                callId: doc.id,
+                type: data['type'] ?? "audio",
+              ),
+            ),
+          ).then((_) {
+            setState(() => _isCallScreenOpen = false);
+            _callTimeoutTimer?.cancel();
+          });
         }
       }
     });
   }
 
-  void _startCallTimeout(String callId, Map<String, dynamic> data) {
+  void _startTimeout(String id, Map<String, dynamic> data) {
     _callTimeoutTimer?.cancel();
     _callTimeoutTimer = Timer(const Duration(seconds: 30), () async {
-      final doc = await FirebaseFirestore.instance
-          .collection('calls')
-          .doc(callId)
-          .get();
+      final doc =
+          await FirebaseFirestore.instance.collection('calls').doc(id).get();
       if (doc.exists && doc.data()?['status'] == 'dialing') {
         await FirebaseFirestore.instance
             .collection('calls')
-            .doc(callId)
+            .doc(id)
             .update({'status': 'missed'});
         final mySnap = await FirebaseFirestore.instance
             .collection('users')
@@ -88,13 +96,13 @@ class _MainScreenState extends State<MainScreen> {
             .get();
         final myData = mySnap.data() as Map<String, dynamic>;
         await CallHistoryManager.logCall(
-            callerId: data['callerId'],
-            callerName: data['callerName'],
+            callerId: data['callerId'] ?? "unknown",
+            callerName: data['callerName'] ?? "User",
             callerPic: data['callerPic'] ?? "",
             receiverId: currentUser!.uid,
-            receiverName: myData['name'],
+            receiverName: myData['name'] ?? "Me",
             receiverPic: myData['profilePic'] ?? "",
-            type: data['type'],
+            type: data['type'] ?? "audio",
             status: 'missed');
       }
     });
@@ -107,8 +115,8 @@ class _MainScreenState extends State<MainScreen> {
     super.dispose();
   }
 
-  void _updateConnectionStatus(ConnectivityResult result) {
-    if (result == ConnectivityResult.none) {
+  void _updateStatus(ConnectivityResult res) {
+    if (res == ConnectivityResult.none) {
       setState(() {
         _isOffline = true;
         _showBackOnline = false;
@@ -130,8 +138,8 @@ class _MainScreenState extends State<MainScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFF0D0D0D),
       body: Column(children: [
-        _buildConnectivityBar(),
-        Expanded(child: IndexedStack(index: _currentIndex, children: _pages)),
+        _buildConnBar(),
+        Expanded(child: IndexedStack(index: _currentIndex, children: _pages))
       ]),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
       floatingActionButton: StreamBuilder<QuerySnapshot>(
@@ -144,9 +152,9 @@ class _MainScreenState extends State<MainScreen> {
           int total = 0;
           if (snapshot.hasData) {
             for (var doc in snapshot.data!.docs) {
-              var d = doc.data() as Map<String, dynamic>;
-              // FIX: Clean num to int casting
-              total += (d['unreadCount'] as num? ?? 0).toInt();
+              final data = doc.data() as Map<String, dynamic>;
+              total += (data['unreadCount'] as num? ?? 0)
+                  .toInt(); // TYPE CASTING FIX
             }
           }
           return _buildNavBar(screenWidth, total);
@@ -155,7 +163,7 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
-  Widget _buildConnectivityBar() {
+  Widget _buildConnBar() {
     bool show = _isOffline || _showBackOnline;
     return AnimatedContainer(
         duration: const Duration(milliseconds: 300),
@@ -207,11 +215,8 @@ class _MainScreenState extends State<MainScreen> {
               top: -2,
               child: Container(
                   padding: const EdgeInsets.all(5),
-                  decoration: BoxDecoration(
-                      color: const Color(0xFFD633FF),
-                      shape: BoxShape.circle,
-                      border:
-                          Border.all(color: const Color(0xFF0D0D0D), width: 2)),
+                  decoration: const BoxDecoration(
+                      color: Color(0xFFD633FF), shape: BoxShape.circle),
                   constraints:
                       const BoxConstraints(minWidth: 18, minHeight: 18),
                   child: Center(

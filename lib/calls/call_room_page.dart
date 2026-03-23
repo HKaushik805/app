@@ -1,9 +1,9 @@
-import 'dart:ui_web' as ui; // Modern 2026 Flutter Web API
+import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:web/web.dart' as web; // Required for HTML IFrame elements
+import 'package:url_launcher/url_launcher.dart';
 
 class CallRoomPage extends StatefulWidget {
   final String callId;
@@ -16,49 +16,45 @@ class CallRoomPage extends StatefulWidget {
 }
 
 class _CallRoomPageState extends State<CallRoomPage> {
-  final String viewID = "grind-chat-iframe";
   final currentUser = FirebaseAuth.instance.currentUser;
 
   @override
   void initState() {
     super.initState();
-    _registerIFrame();
+    _launchExternalCall();
   }
 
-  void _registerIFrame() {
+  Future<void> _launchExternalCall() async {
+    // 1. Fetch user name for Jitsi
+    final userDoc = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(currentUser?.uid)
+        .get();
+    final String userName = userDoc.data()?['name'] ?? "GrindUser";
+
+    // 2. Build the sanitized secure room name
     final String roomName =
         "GrindChat_${widget.callId.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '')}";
-    final String userName = currentUser?.displayName ?? "GrindUser";
 
-    // --- THE FAIL-PROOF PROFESSIONAL URL (Bypasses Login) ---
-    final String jitsiUrl =
-        "https://8x8.vc/vpaas-magic-cookie-3075064bd76a9dc625b76963d41fc289de44242a2634f53cbb8307420301a71b/$roomName"
+    // 3. THE FAIL-PROOF URL (Uses an open community node)
+    final String jitsiUrl = "https://meet.jit.si/$roomName"
         "#config.prejoinPageEnabled=false"
         "&config.disableDeepLinking=true"
-        "&config.hideLogo=true"
         "&userInfo.displayName=\"$userName\"";
 
-    // Registering the view for Flutter Web
-    ui.platformViewRegistry.registerViewFactory(viewID, (int viewId) {
-      final iframe = web.HTMLIFrameElement()
-        ..src = jitsiUrl
-        ..style.border = 'none'
-        ..width = '100%'
-        ..height = '100%'
-        ..allow =
-            "camera; microphone; display-capture; autoplay; clipboard-write";
-      return iframe;
-    });
-  }
+    final Uri url = Uri.parse(jitsiUrl);
 
-  Future<void> _terminateCall() async {
-    // 1. Update database status
-    await FirebaseFirestore.instance
-        .collection('calls')
-        .doc(widget.callId)
-        .update({'status': 'ended'});
+    try {
+      // 4. LAUNCH IN NEW TAB (Bypasses IFrame 'Refused to Connect' errors)
+      if (await canLaunchUrl(url)) {
+        await launchUrl(url, mode: LaunchMode.externalApplication);
+      }
+    } catch (e) {
+      debugPrint("External Launch Error: $e");
+    }
 
-    // 2. Return to the previous page (Chat or Contacts)
+    // 5. REDIRECT BACK: Pop this bridge page immediately
+    // This leaves the user on their previous app screen while the call happens in the next tab
     if (mounted) Navigator.pop(context);
   }
 
@@ -66,22 +62,29 @@ class _CallRoomPageState extends State<CallRoomPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF161616),
-        elevation: 0,
-        centerTitle: true,
-        title: const Text("SECURE ENCRYPTED LINE",
-            style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-                color: Colors.white70,
-                letterSpacing: 2)),
-        leading: IconButton(
-          icon: const Icon(Icons.close, color: Colors.redAccent),
-          onPressed: _terminateCall, // Standard "Cut Call" logic
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(color: Color(0xFF8E2DE2)),
+            const SizedBox(height: 30),
+            ShaderMask(
+              shaderCallback: (bounds) => const LinearGradient(
+                      colors: [Color(0xFFD633FF), Color(0xFF00D2FF)])
+                  .createShader(bounds),
+              child: const Text("HANDSHAKING SECURE LINK...",
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 2,
+                      fontSize: 10)),
+            ),
+            const SizedBox(height: 10),
+            const Text("Your video session is opening in a new tab",
+                style: TextStyle(color: Colors.white24, fontSize: 10)),
+          ],
         ),
       ),
-      body: HtmlElementView(viewType: viewID),
     );
   }
 }
