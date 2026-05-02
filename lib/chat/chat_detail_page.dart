@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -13,7 +14,8 @@ import '../main.dart';
 import '../widgets/grind_avatar.dart';
 
 class ChatDetailPage extends StatefulWidget {
-  final String receiverName, receiverId;
+  final String receiverName;
+  final String receiverId;
   const ChatDetailPage(
       {super.key, required this.receiverName, required this.receiverId});
   @override
@@ -50,11 +52,13 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
   void dispose() {
     _updateTypingStatus(false);
     messengerKey.currentState?.clearSnackBars();
+    _messageController.removeListener(_onTextChanged);
     _messageController.dispose();
     _scrollController.dispose();
     super.dispose();
   }
 
+  // --- LOGIC: TYPING INDICATOR ---
   void _onTextChanged() {
     bool isCurrentlyTyping = _messageController.text.trim().isNotEmpty;
     if (isCurrentlyTyping != _isMeTyping) {
@@ -69,6 +73,7 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
     }, SetOptions(merge: true));
   }
 
+  // --- LOGIC: UNREAD & READ RECEIPTS ---
   void _resetUnreadCount() {
     FirebaseFirestore.instance
         .collection('users')
@@ -88,9 +93,11 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
         .where('isRead', isEqualTo: false)
         .get()
         .then((snapshot) {
+      WriteBatch batch = FirebaseFirestore.instance.batch();
       for (var doc in snapshot.docs) {
-        doc.reference.update({'isRead': true, 'isReceived': true});
+        batch.update(doc.reference, {'isRead': true, 'isReceived': true});
       }
+      batch.commit();
     });
   }
 
@@ -100,6 +107,7 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
     return ids.join("_");
   }
 
+  // --- LOGIC: SENDING ---
   void _handleSendAction() {
     String text = _messageController.text.trim();
     if (text.isNotEmpty) {
@@ -123,8 +131,9 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
         .collection('users')
         .doc(widget.receiverId)
         .get();
-    final myD = mySnap.data() as Map<String, dynamic>;
-    final partnerD = partnerSnap.data() as Map<String, dynamic>;
+
+    final myData = mySnap.data() as Map<String, dynamic>;
+    final partnerData = partnerSnap.data() as Map<String, dynamic>;
 
     await FirebaseFirestore.instance
         .collection('chats')
@@ -155,9 +164,9 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
       'lastMessage': displayMsg,
       'timestamp': FieldValue.serverTimestamp(),
       'unreadCount': 0,
-      'name': partnerD['name'],
-      'profilePic': partnerD['profilePic'],
-      'status': partnerD['status'] ?? "ONLINE",
+      'name': partnerData['name'],
+      'profilePic': partnerData['profilePic'],
+      'status': partnerData['status'] ?? "ONLINE",
     }, SetOptions(merge: true));
 
     await FirebaseFirestore.instance
@@ -169,15 +178,17 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
       'lastMessage': displayMsg,
       'timestamp': FieldValue.serverTimestamp(),
       'unreadCount': FieldValue.increment(1),
-      'name': myD['name'],
-      'profilePic': myD['profilePic'],
-      'status': myD['status'] ?? "ONLINE",
+      'name': myData['name'],
+      'profilePic': myData['profilePic'],
+      'status': myData['status'] ?? "ONLINE",
     }, SetOptions(merge: true));
   }
 
-  void _toggleReaction(String mId, String emoji, Map currentReactions) async {
+  // --- LOGIC: REACTIONS ---
+  void _toggleReaction(
+      String messageId, String emoji, Map existingReactions) async {
     HapticFeedback.heavyImpact();
-    Map newReactions = Map.from(currentReactions);
+    Map newReactions = Map.from(existingReactions);
     if (newReactions[currentUserId] == emoji) {
       newReactions.remove(currentUserId);
     } else {
@@ -187,8 +198,99 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
         .collection('chats')
         .doc(getChatId())
         .collection('messages')
-        .doc(mId)
+        .doc(messageId)
         .update({'reactions': newReactions});
+  }
+
+  // --- THE FIX: ADDED _showMenu METHOD ---
+  void _showMenu(String messageId) {
+    HapticFeedback.mediumImpact();
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF161616),
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (c) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(height: 15),
+          ListTile(
+            leading: const Icon(Icons.person_outline, color: Colors.grey),
+            title: const Text("Delete for me",
+                style: TextStyle(color: Colors.white)),
+            onTap: () {
+              Navigator.pop(c);
+              _deleteForMe(messageId);
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.delete_forever, color: Colors.redAccent),
+            title: const Text("Delete for everyone",
+                style: TextStyle(color: Colors.redAccent)),
+            onTap: () {
+              Navigator.pop(c);
+              _deleteForBoth(messageId);
+            },
+          ),
+          const SizedBox(height: 20),
+        ],
+      ),
+    );
+  }
+
+  void _deleteForMe(String id) async {
+    await FirebaseFirestore.instance
+        .collection('chats')
+        .doc(getChatId())
+        .collection('messages')
+        .doc(id)
+        .update({
+      'deletedBy': FieldValue.arrayUnion([currentUserId])
+    });
+    messengerKey.currentState?.clearSnackBars();
+    messengerKey.currentState?.showSnackBar(SnackBar(
+      content: const Text("Message deleted for you"),
+      duration: const Duration(seconds: 5),
+      behavior: SnackBarBehavior.floating,
+      margin: const EdgeInsets.only(bottom: 100, left: 20, right: 20),
+      action: SnackBarAction(
+          label: "Undo",
+          textColor: const Color(0xFF00D2FF),
+          onPressed: () {
+            FirebaseFirestore.instance
+                .collection('chats')
+                .doc(getChatId())
+                .collection('messages')
+                .doc(id)
+                .update({
+              'deletedBy': FieldValue.arrayRemove([currentUserId])
+            });
+          }),
+    ));
+  }
+
+  void _deleteForBoth(String id) async {
+    bool? confirm = await showDialog(
+        context: context,
+        builder: (c) => AlertDialog(
+                backgroundColor: const Color(0xFF161616),
+                title: const Text("Delete for everyone?"),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(c, false),
+                      child: const Text("Cancel")),
+                  TextButton(
+                      onPressed: () => Navigator.pop(c, true),
+                      child: const Text("Delete",
+                          style: TextStyle(color: Colors.redAccent)))
+                ]));
+    if (confirm == true)
+      await FirebaseFirestore.instance
+          .collection('chats')
+          .doc(getChatId())
+          .collection('messages')
+          .doc(id)
+          .delete();
   }
 
   @override
@@ -291,9 +393,11 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
                 _markMessagesAsRead();
                 var docs = snapshot.data!.docs.where((doc) {
                   Map<String, dynamic> d = doc.data() as Map<String, dynamic>;
-                  return !(d.containsKey('deletedBy') &&
-                      d['deletedBy'].contains(currentUserId));
+                  List deletedBy =
+                      d.containsKey('deletedBy') ? d['deletedBy'] : [];
+                  return !deletedBy.contains(currentUserId);
                 }).toList();
+
                 return ListView.builder(
                   reverse: true,
                   controller: _scrollController,
@@ -301,22 +405,28 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
                   itemCount: docs.length,
                   itemBuilder: (context, index) {
                     var d = docs[index].data() as Map<String, dynamic>;
-                    return ChatMessageBubble(
-                      messageId: docs[index].id,
-                      content: d['message'],
-                      isMe: d['senderId'] == currentUserId,
-                      type: d['type'] ?? 'text',
-                      time: d['timestamp'] != null
-                          ? DateFormat('hh:mm a')
-                              .format((d['timestamp'] as Timestamp).toDate())
-                          : "",
-                      isPending: docs[index].metadata.hasPendingWrites,
-                      isRead: d['isRead'] ?? false,
-                      isReceived: d['isReceived'] ?? false,
-                      reactions: d['reactions'] ?? {},
-                      onReact: (emoji) => _toggleReaction(
-                          docs[index].id, emoji, d['reactions'] ?? {}),
-                      onLongPress: () => _showMenu(docs[index].id),
+                    String msgId = docs[index].id;
+                    bool isMe = d['senderId'] == currentUserId;
+                    String time = d['timestamp'] != null
+                        ? DateFormat('hh:mm a')
+                            .format((d['timestamp'] as Timestamp).toDate())
+                        : "";
+                    return GestureDetector(
+                      onLongPress: () => _showMenu(msgId),
+                      child: ChatMessageBubble(
+                        messageId: msgId,
+                        content: d['message'],
+                        isMe: isMe,
+                        type: d['type'] ?? 'text',
+                        time: time,
+                        isPending: docs[index].metadata.hasPendingWrites,
+                        isRead: d['isRead'] ?? false,
+                        isReceived: d['isReceived'] ?? false,
+                        reactions: d['reactions'] ?? {},
+                        onReact: (emoji) =>
+                            _toggleReaction(msgId, emoji, d['reactions'] ?? {}),
+                        onLongPress: () => _showMenu(msgId),
+                      ),
                     );
                   },
                 );
@@ -340,60 +450,6 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
     );
   }
 
-  void _showMenu(String id) => showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFF161616),
-      builder: (c) => Column(mainAxisSize: MainAxisSize.min, children: [
-            ListTile(
-                leading: const Icon(Icons.person_outline),
-                title: const Text("Delete for me"),
-                onTap: () {
-                  Navigator.pop(c);
-                  _deleteForMe(id);
-                }),
-            ListTile(
-                leading:
-                    const Icon(Icons.delete_forever, color: Colors.redAccent),
-                title: const Text("Delete for everyone"),
-                onTap: () {
-                  Navigator.pop(c);
-                  _deleteForBoth(id);
-                }),
-            const SizedBox(height: 20)
-          ]));
-  void _deleteForMe(String id) async {
-    await FirebaseFirestore.instance
-        .collection('chats')
-        .doc(getChatId())
-        .collection('messages')
-        .doc(id)
-        .update({
-      'deletedBy': FieldValue.arrayUnion([currentUserId])
-    });
-    messengerKey.currentState?.showSnackBar(SnackBar(
-        content: const Text("Deleted"),
-        behavior: SnackBarBehavior.floating,
-        action: SnackBarAction(
-            label: "Undo",
-            onPressed: () => FirebaseFirestore.instance
-                    .collection('chats')
-                    .doc(getChatId())
-                    .collection('messages')
-                    .doc(id)
-                    .update({
-                  'deletedBy': FieldValue.arrayRemove([currentUserId])
-                }))));
-  }
-
-  void _deleteForBoth(String id) async {
-    await FirebaseFirestore.instance
-        .collection('chats')
-        .doc(getChatId())
-        .collection('messages')
-        .doc(id)
-        .delete();
-  }
-
   Widget _buildInput() => Container(
       padding: EdgeInsets.only(
           left: 16,
@@ -404,26 +460,7 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
         GestureDetector(
             onTap: () {
               HapticFeedback.mediumImpact();
-              showModalBottomSheet(
-                  context: context,
-                  backgroundColor: const Color(0xFF161616),
-                  builder: (c) =>
-                      Column(mainAxisSize: MainAxisSize.min, children: [
-                        ListTile(
-                            leading: const Icon(Icons.image),
-                            title: const Text("Photo"),
-                            onTap: () {
-                              Navigator.pop(c);
-                              _pickMedia(false);
-                            }),
-                        ListTile(
-                            leading: const Icon(Icons.videocam),
-                            title: const Text("Video"),
-                            onTap: () {
-                              Navigator.pop(c);
-                              _pickMedia(true);
-                            })
-                      ]));
+              _showMediaOptions();
             },
             child: Container(
                 height: 48,
@@ -459,6 +496,31 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
                     color: Colors.white, size: 22))),
       ]));
 
+  void _showMediaOptions() {
+    showModalBottomSheet(
+        context: context,
+        backgroundColor: const Color(0xFF161616),
+        shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+        builder: (c) => Column(mainAxisSize: MainAxisSize.min, children: [
+              ListTile(
+                  leading: const Icon(Icons.image),
+                  title: const Text("Photo"),
+                  onTap: () {
+                    Navigator.pop(c);
+                    _pickMedia(false);
+                  }),
+              ListTile(
+                  leading: const Icon(Icons.videocam),
+                  title: const Text("Video"),
+                  onTap: () {
+                    Navigator.pop(c);
+                    _pickMedia(true);
+                  }),
+              const SizedBox(height: 20)
+            ]));
+  }
+
   Future<void> _pickMedia(bool isV) async {
     final f = isV
         ? await ImagePicker().pickVideo(source: ImageSource.gallery)
@@ -482,6 +544,10 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
           cloudinaryId: j['public_id']);
     }
     setState(() => _isUploadingMedia = false);
+  }
+
+  Future<Map<String, String>?> _uploadToCloudinary(File f, bool v) async {
+    /* Implemented inside _pickMedia for space */ return null;
   }
 }
 
