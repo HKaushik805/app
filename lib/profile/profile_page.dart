@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../auth/login_page.dart';
+// --- ALL PROFESSIONAL IMPORTS ---
 import '../main.dart';
 import '../widgets/grind_avatar.dart';
 import 'about_page.dart';
@@ -23,13 +24,35 @@ class ProfilePage extends StatefulWidget {
 
 class _ProfilePageState extends State<ProfilePage> {
   final currentUser = FirebaseAuth.instance.currentUser;
-  bool isDarkMode = true;
 
   Color _getStatusColor(String s) {
-    if (s == "ONLINE") return Colors.green;
-    if (s == "AWAY") return Colors.yellow;
-    if (s == "GRINDING") return Colors.orange;
-    return Colors.grey;
+    switch (s) {
+      case "ONLINE":
+        return Colors.green;
+      case "AWAY":
+        return Colors.yellow;
+      case "GRINDING":
+        return Colors.orange;
+      case "BUSY":
+        return Colors.redAccent;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  IconData _getStatusIcon(String s) {
+    switch (s) {
+      case "GRINDING":
+        return Icons.local_fire_department;
+      case "ONLINE":
+        return Icons.bolt;
+      case "AWAY":
+        return Icons.coffee;
+      case "BUSY":
+        return Icons.track_changes;
+      default:
+        return Icons.circle;
+    }
   }
 
   @override
@@ -45,9 +68,15 @@ class _ProfilePageState extends State<ProfilePage> {
           builder: (context, snapshot) {
             if (!snapshot.hasData)
               return const Center(
-                child: CircularProgressIndicator(color: Color(0xFF8E2DE2)),
-              );
+                  child: CircularProgressIndicator(color: Color(0xFF8E2DE2)));
+
             var d = snapshot.data!.data() as Map<String, dynamic>;
+            String name = (d['name'] ?? "User").toString();
+            String status = (d['status'] ?? "GRINDING").toString();
+            String bio =
+                (d['subtext'] ?? "Stay connected. Stay grinding.").toString();
+            String pic = (d['profilePic'] ?? "").toString();
+
             return Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 600),
@@ -56,120 +85,109 @@ class _ProfilePageState extends State<ProfilePage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _buildHeader(d),
+                      // --- HEADER CARD ---
+                      _buildProfileHeader(name, status, bio, pic),
+
+                      // --- ACCOUNT SECTION ---
                       _buildSectionHeader("ACCOUNT"),
-                      _buildTile(
+                      _buildSettingTile(
                         Icons.edit_outlined,
                         "Edit Profile",
-                        "Change name and photo",
+                        "Change your name, photo, and bio",
                         onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (c) => EditProfilePage(userData: d),
-                          ),
-                        ),
+                            context,
+                            MaterialPageRoute(
+                                builder: (c) => EditProfilePage(userData: d))),
                       ),
-                      _buildTile(
-                        Icons.bolt,
+                      _buildSettingTile(
+                        _getStatusIcon(status),
                         "Status",
-                        "Currently: ${d['status']}",
+                        "Currently: $status",
+                        isStatusIcon: true,
+                        iconColor: _getStatusColor(status),
                         onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (c) => ChangeStatusPage(userData: d),
-                          ),
-                        ),
+                            context,
+                            MaterialPageRoute(
+                                builder: (c) => ChangeStatusPage(userData: d))),
                       ),
+
+                      // --- PREFERENCES SECTION ---
                       _buildSectionHeader("PREFERENCES"),
-                      _buildTile(
-                        Icons.dark_mode_outlined,
-                        "Dark Mode",
-                        "Always on",
-                        trailing: Switch(
-                          value: isDarkMode,
-                          onChanged: (v) => setState(() => isDarkMode = v),
-                          activeThumbColor: const Color(0xFF8E2DE2),
-                        ),
-                      ),
-                      _buildTile(
+                      _buildSettingTile(
                         Icons.volume_up_outlined,
                         "Sounds & Haptics",
-                        "Ringtones",
+                        "Ringtones and vibration",
                         onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (c) => const SoundsHapticsPage(),
-                          ),
-                        ),
+                            context,
+                            MaterialPageRoute(
+                                builder: (c) => const SoundsHapticsPage())),
                       ),
-                      _buildTile(
+                      _buildSettingTile(
                         Icons.palette_outlined,
                         "Appearance",
-                        "Themes",
+                        "Themes and customization",
                         onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (c) => const AppearancePage(),
-                          ),
-                        ),
+                            context,
+                            MaterialPageRoute(
+                                builder: (c) => const AppearancePage())),
                       ),
+
+                      // --- PRIVACY & SECURITY SECTION ---
                       _buildSectionHeader("PRIVACY & SECURITY"),
-                      _buildTile(
+                      _buildSettingTile(
                         Icons.lock_outline,
                         "Privacy",
-                        "Block contacts",
+                        "Block contacts, disappearing messages",
                         onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (c) => const PrivacyPage(),
-                          ),
-                        ),
+                            context,
+                            MaterialPageRoute(
+                                builder: (c) => const PrivacyPage())),
                       ),
-                      _buildTile(
+                      _buildSettingTile(
                         Icons.shield_outlined,
                         "Security",
-                        "Change password",
+                        "Two-step verification, change password",
                         onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (c) => const SecurityPage(),
-                          ),
-                        ),
+                            context,
+                            MaterialPageRoute(
+                                builder: (c) => const SecurityPage())),
                       ),
-                      _buildTile(
+                      _buildSettingTile(
                         Icons.storage_outlined,
                         "Data Usage",
-                        "Network usage",
+                        "Network usage, auto-download",
                         onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (c) => const DataUsagePage(),
-                          ),
-                        ),
+                            context,
+                            MaterialPageRoute(
+                                builder: (c) => const DataUsagePage())),
                       ),
+
+                      // --- SUPPORT SECTION ---
                       _buildSectionHeader("SUPPORT"),
-                      _buildTile(
+                      _buildSettingTile(
                         Icons.help_outline,
                         "Help Center",
-                        "FAQs",
+                        "FAQs and support",
                         onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (c) => const HelpCenterPage(),
-                          ),
-                        ),
+                            context,
+                            MaterialPageRoute(
+                                builder: (c) => const HelpCenterPage())),
                       ),
-                      _buildTile(
+                      _buildSettingTile(
                         Icons.info_outline,
                         "About",
                         "Version 2.5.6",
                         onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (c) => const AboutPage()),
-                        ),
+                            context,
+                            MaterialPageRoute(
+                                builder: (c) => const AboutPage())),
                       ),
+
                       const SizedBox(height: 30),
-                      _buildLogout(),
+
+                      // --- LOG OUT BUTTON ---
+                      _buildLogoutButton(),
+
                       const SizedBox(height: 120),
                     ],
                   ),
@@ -182,23 +200,19 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  Widget _buildHeader(Map<String, dynamic> d) {
+  Widget _buildProfileHeader(
+      String name, String status, String subtext, String profilePic) {
     return Container(
       margin: const EdgeInsets.all(16),
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: const Color(0xFF161616),
-        borderRadius: BorderRadius.circular(25),
-      ),
+          color: const Color(0xFF161616),
+          borderRadius: BorderRadius.circular(25)),
       child: Row(
         children: [
           Stack(
             children: [
-              GrindAvatar(
-                imageUrl: d['profilePic'],
-                radius: 35,
-                name: d['name'] ?? "",
-              ),
+              GrindAvatar(imageUrl: profilePic, radius: 35, name: name),
               Positioned(
                 right: 0,
                 bottom: 0,
@@ -206,7 +220,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   width: 18,
                   height: 18,
                   decoration: BoxDecoration(
-                    color: _getStatusColor(d['status'] ?? ""),
+                    color: _getStatusColor(status),
                     shape: BoxShape.circle,
                     border: Border.all(color: Colors.black, width: 2.5),
                   ),
@@ -219,136 +233,121 @@ class _ProfilePageState extends State<ProfilePage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  d['name'] ?? "User",
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 20,
-                  ),
-                ),
-                Text(
-                  "● ${d['status'] ?? 'OFFLINE'}",
-                  style: TextStyle(
-                    color: _getStatusColor(d['status'] ?? ""),
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
+                Text(name,
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 20)),
+                Text("● $status",
+                    style: TextStyle(
+                        color: _getStatusColor(status),
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold)),
                 const SizedBox(height: 4),
-                Text(
-                  d['subtext'] ?? "",
-                  style: const TextStyle(color: Colors.grey, fontSize: 12),
-                  maxLines: 1,
-                ),
+                Text(subtext,
+                    style: const TextStyle(color: Colors.grey, fontSize: 12),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis),
               ],
             ),
           ),
+          const Icon(Icons.more_vert, color: Colors.white70),
         ],
       ),
     );
   }
 
-  Widget _buildSectionHeader(String t) => Padding(
-    padding: const EdgeInsets.only(left: 20, top: 25, bottom: 10),
-    child: Text(
-      t,
-      style: const TextStyle(
-        color: Color(0xFF444444),
-        fontSize: 11,
-        fontWeight: FontWeight.bold,
-        letterSpacing: 1.5,
-      ),
-    ),
-  );
-  Widget _buildTile(
-    IconData i,
-    String t,
-    String s, {
-    Widget? trailing,
-    VoidCallback? onTap,
-  }) => InkWell(
-    onTap: onTap,
-    child: Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      child: Row(
-        children: [
-          Container(
-            height: 45,
-            width: 45,
-            decoration: const BoxDecoration(
-              color: Color(0xFF161616),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(i, color: Colors.white70, size: 20),
-          ),
-          const SizedBox(width: 15),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  t,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 15,
-                  ),
-                ),
-                Text(
-                  s,
-                  style: const TextStyle(
-                    color: Color(0xFF666666),
-                    fontSize: 12,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          trailing ??
-              const Icon(
-                Icons.arrow_forward_ios,
-                color: Color(0xFF333333),
-                size: 14,
-              ),
-        ],
-      ),
-    ),
-  );
-  Widget _buildLogout() => Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 16.0),
-    child: InkWell(
-      onTap: () async {
-        messengerKey.currentState?.clearSnackBars();
-        await FirebaseAuth.instance.signOut();
-        Navigator.pushAndRemoveUntil(
-          context,
-          MaterialPageRoute(builder: (c) => const LoginPage()),
-          (r) => false,
-        );
-      },
-      child: Container(
-        height: 55,
-        decoration: BoxDecoration(
-          color: const Color(0xFF1A0A0A),
-          borderRadius: BorderRadius.circular(15),
-          border: Border.all(color: Colors.red.withOpacity(0.3)),
-        ),
-        child: const Row(
-          mainAxisAlignment: MainAxisAlignment.center,
+  Widget _buildSectionHeader(String title) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 20, top: 25, bottom: 10),
+      child: Text(title,
+          style: const TextStyle(
+              color: Color(0xFF444444),
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1.5)),
+    );
+  }
+
+  Widget _buildSettingTile(IconData icon, String title, String subtitle,
+      {Widget? trailing,
+      VoidCallback? onTap,
+      bool isStatusIcon = false,
+      Color iconColor = Colors.white70}) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        child: Row(
           children: [
-            Icon(Icons.logout, color: Colors.redAccent),
-            SizedBox(width: 10),
-            Text(
-              "Log Out",
-              style: TextStyle(
-                color: Colors.redAccent,
-                fontWeight: FontWeight.bold,
+            Hero(
+              tag: isStatusIcon ? 'status_icon_hero' : title,
+              child: Container(
+                height: 45,
+                width: 45,
+                decoration: const BoxDecoration(
+                    color: Color(0xFF161616), shape: BoxShape.circle),
+                child: Icon(icon, color: iconColor, size: 20),
               ),
             ),
+            const SizedBox(width: 15),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title,
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 15)),
+                  Text(subtitle,
+                      style: const TextStyle(
+                          color: Color(0xFF666666), fontSize: 12)),
+                ],
+              ),
+            ),
+            trailing ??
+                const Icon(Icons.arrow_forward_ios,
+                    color: Color(0xFF333333), size: 14),
           ],
         ),
       ),
-    ),
-  );
+    );
+  }
+
+  Widget _buildLogoutButton() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+      child: InkWell(
+        onTap: () async {
+          messengerKey.currentState?.clearSnackBars();
+          await FirebaseAuth.instance.signOut();
+          if (mounted) {
+            Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(builder: (c) => const LoginPage()),
+                (r) => false);
+          }
+        },
+        child: Container(
+          height: 55,
+          decoration: BoxDecoration(
+            color: const Color(0xFF1A0A0A),
+            borderRadius: BorderRadius.circular(15),
+            border: Border.all(color: Colors.red.withOpacity(0.3)),
+          ),
+          child: const Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.logout, color: Colors.redAccent, size: 20),
+              SizedBox(width: 10),
+              Text("Log Out",
+                  style: TextStyle(
+                      color: Colors.redAccent, fontWeight: FontWeight.bold)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }

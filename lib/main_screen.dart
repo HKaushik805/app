@@ -5,12 +5,9 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
-import 'calls/call_history_manager.dart';
-import 'calls/call_page.dart';
-import 'calls/incoming_call_screen.dart';
 import 'chat/chat_page.dart';
 import 'contacts/contacts_page.dart';
-import 'main.dart'; // To access global messengerKey
+import 'main.dart';
 import 'profile/profile_page.dart';
 
 class MainScreen extends StatefulWidget {
@@ -25,15 +22,9 @@ class _MainScreenState extends State<MainScreen> {
   late StreamSubscription<List<ConnectivityResult>> _connectivitySubscription;
   bool _isOffline = false;
   bool _showBackOnline = false;
-  bool _isCallScreenOpen = false;
-  Timer? _callTimeoutTimer;
 
-  final List<Widget> _pages = [
-    const ChatPage(),
-    const CallPage(),
-    const ContactsPage(),
-    const ProfilePage()
-  ];
+  // Reduced to 3 Core Pages
+  final List<Widget> _pages = [];
 
   @override
   void initState() {
@@ -41,77 +32,11 @@ class _MainScreenState extends State<MainScreen> {
     _connectivitySubscription = Connectivity()
         .onConnectivityChanged
         .listen((results) => _updateStatus(results.first));
-    _listenForCalls();
-  }
-
-  // --- LOGIC: FIXED CALL LISTENER ---
-  void _listenForCalls() {
-    if (currentUser == null) return;
-    FirebaseFirestore.instance
-        .collection('calls')
-        .where('receiverId', isEqualTo: currentUser!.uid)
-        .where('status', isEqualTo: 'dialing')
-        .snapshots()
-        .listen((snapshot) {
-      if (snapshot.docs.isNotEmpty && !_isCallScreenOpen) {
-        var doc = snapshot.docs.first;
-        Map<String, dynamic> data = doc.data();
-
-        setState(() => _isCallScreenOpen = true);
-
-        if (mounted) {
-          _startTimeout(doc.id, data);
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => IncomingCallScreen(
-                callerName: data['callerName'] ?? "Unknown",
-                callerPic: data['callerPic'] ?? "",
-                callId: doc.id,
-                type: data['type'] ?? "audio",
-              ),
-            ),
-          ).then((_) {
-            setState(() => _isCallScreenOpen = false);
-            _callTimeoutTimer?.cancel();
-          });
-        }
-      }
-    });
-  }
-
-  void _startTimeout(String id, Map<String, dynamic> data) {
-    _callTimeoutTimer?.cancel();
-    _callTimeoutTimer = Timer(const Duration(seconds: 30), () async {
-      final doc =
-          await FirebaseFirestore.instance.collection('calls').doc(id).get();
-      if (doc.exists && doc.data()?['status'] == 'dialing') {
-        await FirebaseFirestore.instance
-            .collection('calls')
-            .doc(id)
-            .update({'status': 'missed'});
-        final mySnap = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(currentUser!.uid)
-            .get();
-        final myData = mySnap.data() as Map<String, dynamic>;
-        await CallHistoryManager.logCall(
-            callerId: data['callerId'] ?? "unknown",
-            callerName: data['callerName'] ?? "User",
-            callerPic: data['callerPic'] ?? "",
-            receiverId: currentUser!.uid,
-            receiverName: myData['name'] ?? "Me",
-            receiverPic: myData['profilePic'] ?? "",
-            type: data['type'] ?? "audio",
-            status: 'missed');
-      }
-    });
   }
 
   @override
   void dispose() {
     _connectivitySubscription.cancel();
-    _callTimeoutTimer?.cancel();
     super.dispose();
   }
 
@@ -135,12 +60,22 @@ class _MainScreenState extends State<MainScreen> {
   @override
   Widget build(BuildContext context) {
     double screenWidth = MediaQuery.of(context).size.width;
+
+    // We define pages inside build to ensure they receive the current index correctly
+    final List<Widget> pages = [
+      ChatPage(activeTabIndex: _currentIndex),
+      ContactsPage(activeTabIndex: _currentIndex),
+      const ProfilePage()
+    ];
+
     return Scaffold(
       backgroundColor: const Color(0xFF0D0D0D),
-      body: Column(children: [
-        _buildConnBar(),
-        Expanded(child: IndexedStack(index: _currentIndex, children: _pages))
-      ]),
+      body: Column(
+        children: [
+          _buildConnBar(),
+          Expanded(child: IndexedStack(index: _currentIndex, children: pages)),
+        ],
+      ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
       floatingActionButton: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
@@ -152,9 +87,8 @@ class _MainScreenState extends State<MainScreen> {
           int total = 0;
           if (snapshot.hasData) {
             for (var doc in snapshot.data!.docs) {
-              final data = doc.data() as Map<String, dynamic>;
-              total += (data['unreadCount'] as num? ?? 0)
-                  .toInt(); // TYPE CASTING FIX
+              var d = doc.data() as Map<String, dynamic>;
+              total += (d['unreadCount'] as num? ?? 0).toInt();
             }
           }
           return _buildNavBar(screenWidth, total);
@@ -174,22 +108,22 @@ class _MainScreenState extends State<MainScreen> {
             child: Text(_isOffline ? "Waiting for network..." : "Back Online",
                 style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 12,
+                    fontSize: 11,
                     fontWeight: FontWeight.bold))));
   }
 
   Widget _buildNavBar(double w, int u) => Container(
       height: 70,
-      width: w * 0.85,
+      width: w * 0.75, // Narrower bar for 3 icons
       decoration: BoxDecoration(
           color: const Color(0xFF161616).withOpacity(0.98),
           borderRadius: BorderRadius.circular(40)),
       child: Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
         _nav(Icons.chat_bubble_outline, _currentIndex == 0, 0, u),
-        _nav(Icons.phone_outlined, _currentIndex == 1, 1, 0),
-        _nav(Icons.people_outline, _currentIndex == 2, 2, 0),
-        _nav(Icons.person_outline, _currentIndex == 3, 3, 0)
+        _nav(Icons.people_outline, _currentIndex == 1, 1, 0),
+        _nav(Icons.person_outline, _currentIndex == 2, 2, 0),
       ]));
+
   Widget _nav(IconData i, bool a, int idx, int b) => GestureDetector(
       onTap: () {
         messengerKey.currentState?.clearSnackBars();
